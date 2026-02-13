@@ -3504,6 +3504,20 @@ def get_sector_list_for_market(user_id: str, market: str) -> Dict[str, Any]:
     return {"ok": True, "user_id": user_id, "market": lookup_market, "count": len(out), "sectors": out}
 
 
+def get_sector_seed_items(market: str = "ALL", limit: int = 5000) -> Dict[str, Any]:
+    lookup_market = clean_lookup_market(market)
+    lim = max(1, min(limit, 20000))
+    out: List[Dict[str, Any]] = []
+    for item in load_sector_seed():
+        item_market = str(item.get("market", "")).upper()
+        if lookup_market != "ALL" and item_market != lookup_market:
+            continue
+        out.append(item)
+        if len(out) >= lim:
+            break
+    return {"ok": True, "market": lookup_market, "count": len(out), "items": out}
+
+
 def get_sector_stocks(
     user_id: str,
     market: str,
@@ -3822,6 +3836,9 @@ class AppHandler(SimpleHTTPRequestHandler):
                     return json_response(self, HTTPStatus.OK, lookup_company(query, market=lookup_market, limit=limit))
                 if parsed.path == "/api/sector-list":
                     return json_response(self, HTTPStatus.OK, get_sector_list_for_market(user_id, lookup_market))
+                if parsed.path == "/api/sector-seed":
+                    limit = int((qs.get("limit") or ["5000"])[0])
+                    return json_response(self, HTTPStatus.OK, get_sector_seed_items(lookup_market, limit=limit))
                 if parsed.path == "/api/sector-stocks":
                     sector = (qs.get("sector") or [""])[0]
                     limit = int((qs.get("limit") or ["30"])[0])

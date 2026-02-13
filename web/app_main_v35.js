@@ -1946,11 +1946,26 @@ function normalizeKRTicker(ticker) {
 
 async function getSectorSeed() {
   if (Array.isArray(sectorSeedCache)) return sectorSeedCache;
-  const res = await fetch("../data/sector_seed.json", { cache: "no-store" });
-  if (!res.ok) throw new Error(`seed ${res.status}`);
-  const data = await res.json();
-  sectorSeedCache = Array.isArray(data) ? data : [];
-  return sectorSeedCache;
+  try {
+    const api = await fetchApi("/api/sector-seed?market=ALL&limit=8000");
+    const items = Array.isArray(api?.items) ? api.items : [];
+    if (items.length) {
+      sectorSeedCache = items;
+      return sectorSeedCache;
+    }
+  } catch (_err) {
+    // static fallback below
+  }
+  try {
+    const res = await fetch("/data/sector_seed.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(`seed ${res.status}`);
+    const data = await res.json();
+    sectorSeedCache = Array.isArray(data) ? data : [];
+    return sectorSeedCache;
+  } catch (_err) {
+    sectorSeedCache = [];
+    return sectorSeedCache;
+  }
 }
 
 async function lookupCompanyLocal(query, market, limit = 20) {
