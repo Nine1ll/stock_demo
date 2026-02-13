@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stock Value Decision App</title>
+    <meta name="description" content="섹터 분류 및 저평가/고평가 판단 기반 주식 의사결정 도구" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="bootDiagnostics" class="boot-diagnostics" aria-live="polite">JS 준비중...</div>
+    <main class="app-shell">
+      <header class="hero">
+        <h1>Stock Value Decision App</h1>
+        <p>섹터 분류 + 펀더멘털/테마 과열 점수로 매수·매도 의사결정 지원</p>
+      </header>
+
+      <nav class="page-nav">
+        <button id="navIntelBtn" class="btn secondary page-tab active">종목 인텔리전스</button>
+        <button id="navAutoBtn" class="btn ghost page-tab">자동 수집/알림</button>
+      </nav>
+
+      <section id="intelPage" class="panel intel-panel page-view is-active">
+        <div class="panel-head">
+          <h2>종목 인텔리전스</h2>
+          <span id="intelMeta" class="chip">조회 전</span>
+        </div>
+        <p class="muted">5초 안에 현재 상황/핵심 신호/행동 제안을 파악할 수 있도록 결론 중심으로 구성했습니다.</p>
+
+        <div class="flow-chips">
+          <span class="chip soft">회사명 검색 가능</span>
+          <span class="chip soft">KR/US 시장 지원</span>
+          <span class="chip soft">근거 기반 액션 제안</span>
+        </div>
+
+        <div class="intel-controls search-row">
+          <label>
+            회사 이름 검색
+            <input id="companyQuery" type="text" placeholder="예: Apple, 삼성전자" />
+          </label>
+          <label style="display:none;">
+            섹터 선택
+            <select id="sectorSelect">
+              <option value="">섹터 선택</option>
+            </select>
+          </label>
+          <button id="searchCompanyBtn" class="btn primary">회사명 검색</button>
+          <button id="loadSectorBtn" class="btn ghost" style="display:none;">섹터 종목 불러오기</button>
+        </div>
+
+        <div class="intel-controls query-row">
+          <label>
+            종목코드(자동)
+            <input id="intelTicker" type="text" placeholder="회사 검색 시 자동 입력" readonly />
+          </label>
+          <label>
+            시장(자동)
+            <select id="intelMarket" disabled>
+              <option value="US">US</option>
+              <option value="KR">KR</option>
+              <option value="ALL">전체 (US+KR)</option>
+            </select>
+          </label>
+          <label>
+            기술 키워드(자동)
+            <input id="techQuery" type="text" placeholder="회사/섹터 기반 자동 매칭" readonly />
+          </label>
+          <button id="loadIntelBtn" class="btn secondary" style="display:none;">인텔리전스 조회</button>
+        </div>
+
+        <section id="stockHeaderSummary" class="stock-header-summary" aria-live="polite">
+          <div class="stock-header-main">
+            <div class="stock-name-block">
+              <strong id="summaryCompanyName">종목 선택 대기</strong>
+              <span id="summaryTickerMarket" class="muted-sm">-</span>
+            </div>
+            <div class="stock-price-block">
+              <span id="summaryCurrentPrice" class="price-lg">-</span>
+              <span id="summaryChange" class="change-neutral">-</span>
+            </div>
+          </div>
+          <div class="stock-header-sub">
+            <span id="summarySignal" class="chip soft">핵심 신호: 조회 전</span>
+            <span id="summaryAssumptionBadge" class="chip soft" hidden>가정 변경 반영됨</span>
+            <span id="summaryUpdatedAt" class="muted-sm">마지막 업데이트: -</span>
+          </div>
+          <div class="stock-header-actions">
+            <button id="headerWatchToggleBtn" class="btn secondary" type="button">관심종목 추가/제거</button>
+            <button id="headerAlertSetupBtn" class="btn ghost" type="button">알림 설정으로 이동</button>
+            <button id="headerShareBtn" class="btn ghost" type="button">리포트 링크 복사</button>
+            <a class="btn ghost" href="./methodology.html" target="_blank" rel="noopener noreferrer">용어/산식 설명</a>
+          </div>
+        </section>
+
+        <div id="mobileViewSwitch" class="mobile-view-switch" role="tablist" aria-label="모바일 보기 전환">
+          <button id="mobileViewCoreBtn" class="btn secondary" type="button" data-mobile-view-tab="core" aria-selected="true">핵심</button>
+          <button id="mobileViewDetailBtn" class="btn ghost" type="button" data-mobile-view-tab="detail" aria-selected="false">근거</button>
+          <button id="mobileViewFeedBtn" class="btn ghost" type="button" data-mobile-view-tab="feed" aria-selected="false">피드</button>
+        </div>
+
+        <div class="intel-main-layout">
+          <div class="intel-main-primary" data-mobile-view-item="core">
+            <div id="quoteCard" class="intel-card"></div>
+            <div id="decisionPanelCard" class="intel-card"></div>
+
+            <div class="intel-card">
+              <div class="panel-head">
+                <h3>산업/테마 후보 비교</h3>
+                <span class="muted-sm">검색 종목과 연관 섹터를 함께 탐색</span>
+              </div>
+              <div id="relatedSectorChips" class="flow-chips"></div>
+              <div class="carousel-wrap">
+                <button id="relatedPrevBtn" class="btn ghost carousel-btn" type="button" aria-label="이전 종목">◀</button>
+                <div id="relatedStocksList" class="stock-carousel" aria-label="관련 종목 슬라이드"></div>
+                <button id="relatedNextBtn" class="btn ghost carousel-btn" type="button" aria-label="다음 종목">▶</button>
+              </div>
+            </div>
+
+            <div id="sectorCompareCard" class="intel-card">
+              <div class="panel-head">
+                <h3>섹터 주식 비교하기</h3>
+                <span id="sectorCompareMeta" class="muted-sm">관련 종목에서 비교추가를 눌러주세요.</span>
+              </div>
+              <div id="sectorCompareSelected" class="flow-chips"></div>
+              <div id="sectorCompareTabs" class="page-nav">
+                <button class="btn secondary compare-tab active" type="button" data-compare-tab="core">핵심</button>
+                <button class="btn ghost compare-tab" type="button" data-compare-tab="detail">근거</button>
+                <button class="btn ghost compare-tab" type="button" data-compare-tab="feed">피드</button>
+              </div>
+              <div id="sectorCompareBody" class="compare-body muted-sm">비교 대상 종목을 2개 이상 추가하면 표가 생성됩니다.</div>
+            </div>
+
+            <div id="relativeComparisonCard" class="intel-card"></div>
+
+            <details class="intel-card collapsible-card" open>
+              <summary>
+                <strong>의사결정 설정 + Scenario Analyzer</strong>
+                <span class="muted-sm">접기/펼치기</span>
+              </summary>
+              <div class="settings-scenario-grid">
+                <div class="intel-card inner-card">
+                  <div class="panel-head">
+                    <h3>의사결정 설정</h3>
+                    <span class="chip soft">개인화</span>
+                  </div>
+                  <div class="intel-controls query-row">
+                    <label>
+                      투자기간
+                      <select id="prefHorizon">
+                        <option value="short">단기</option>
+                        <option value="mid" selected>중기</option>
+                        <option value="long">장기</option>
+                      </select>
+                    </label>
+                    <label>
+                      리스크 성향
+                      <select id="prefRisk">
+                        <option value="conservative">보수</option>
+                        <option value="neutral" selected>중립</option>
+                        <option value="aggressive">공격</option>
+                      </select>
+                    </label>
+                    <label>
+                      환율 변화(%)
+                      <input id="scenarioFx" type="range" min="-10" max="10" step="0.5" value="0" />
+                      <small id="scenarioFxText">0.0%</small>
+                    </label>
+                    <label>
+                      EV 판매 성장률(%)
+                      <input id="scenarioEv" type="range" min="-20" max="30" step="1" value="5" />
+                      <small id="scenarioEvText">5%</small>
+                    </label>
+                  </div>
+                  <div class="preset-row">
+                    <button id="scenarioPresetConservativeBtn" class="btn ghost" type="button">보수 프리셋</button>
+                    <button id="scenarioPresetBaseBtn" class="btn ghost" type="button">기준 프리셋</button>
+                    <button id="scenarioPresetAggressiveBtn" class="btn ghost" type="button">공격 프리셋</button>
+                    <button id="scenarioResetBtn" class="btn secondary" type="button">기본값 리셋</button>
+                  </div>
+                </div>
+                <div id="scenarioAnalyzerCard" class="intel-card inner-card"></div>
+              </div>
+            </details>
+          </div>
+          <div class="intel-main-secondary" data-mobile-view-item="detail">
+            <div id="intelSummaryCard" class="intel-card"></div>
+            <div id="fundamentalCard" class="intel-card"></div>
+            <div id="valuationExplainCard" class="intel-card"></div>
+          </div>
+
+          <div class="intel-main-secondary" data-mobile-view-item="feed">
+            <div class="intel-card feed-card">
+              <div class="panel-head">
+                <h3>관련 뉴스</h3>
+                <span class="muted-sm">출처/시간/태그 표시</span>
+              </div>
+              <div class="feed-filters">
+                <input id="newsSourceFilter" type="text" placeholder="소스 필터 (예: 연합뉴스, 매경)" />
+                <input id="newsKeywordFilter" type="text" placeholder="키워드 필터 (예: 실적, 규제)" />
+                <select id="newsSentimentFilter" aria-label="뉴스 톤 필터">
+                  <option value="">전체 톤</option>
+                  <option value="positive">긍정</option>
+                  <option value="negative">부정</option>
+                  <option value="neutral">중립</option>
+                </select>
+              </div>
+              <ul id="newsList" class="reason-list feed-list"></ul>
+              <button id="newsMoreBtn" class="btn ghost feed-more-btn" type="button">뉴스 더 보기</button>
+            </div>
+
+            <div class="intel-card feed-card">
+              <div class="panel-head">
+                <h3>최근 공시</h3>
+                <span class="muted-sm">폼/일자/링크</span>
+              </div>
+              <div class="feed-filters">
+                <input id="filingFormFilter" type="text" placeholder="공시명/폼 필터 (예: 10-K, 사업보고서)" />
+              </div>
+              <ul id="filingList" class="reason-list feed-list"></ul>
+              <button id="filingMoreBtn" class="btn ghost feed-more-btn" type="button">공시 더 보기</button>
+            </div>
+
+            <div class="intel-card feed-card">
+              <div class="panel-head">
+                <h3>관련 기술</h3>
+                <span class="muted-sm">arXiv / Crossref</span>
+              </div>
+              <ul id="techList" class="reason-list feed-list"></ul>
+              <button id="techMoreBtn" class="btn ghost feed-more-btn" type="button">기술 자료 더 보기</button>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <section id="autoPage" class="panel auto-panel page-view">
+        <div class="panel-head">
+          <h2>자동 수집/알림</h2>
+          <span id="autoMeta" class="chip">미설정</span>
+        </div>
+        <p class="muted">Step 순서: 1) 관심종목 2) 조건 3) 채널 4) 저장/테스트</p>
+
+        <div class="stepper">
+          <span class="step-pill">Step 1 관심종목</span>
+          <span class="step-pill">Step 2 조건</span>
+          <span class="step-pill">Step 3 채널</span>
+          <span class="step-pill">Step 4 저장/테스트</span>
+        </div>
+
+        <div class="step-card">
+          <h3>Step 1. 관심종목 추가</h3>
+          <div class="auto-grid">
+            <label>
+              사용자 ID
+              <input id="userId" type="text" placeholder="예: default, honggildong" />
+            </label>
+            <label>
+              관심 종목코드(티커)
+              <input id="watchTicker" type="text" placeholder="예: AAPL(애플), 005930(삼성전자)" />
+            </label>
+            <label>
+              시장
+              <select id="watchMarket">
+                <option value="US">US</option>
+                <option value="KR">KR</option>
+              </select>
+            </label>
+            <button id="addWatchBtn" class="btn primary">관심종목 추가</button>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <h3>Step 2. 알림 조건 설정</h3>
+          <div class="auto-grid">
+            <label>
+              가격 변동률 임계(%)
+              <input id="priceThreshold" type="text" value="5" />
+              <small class="muted-sm">권장 2~15%</small>
+            </label>
+            <label>
+              과열 점수 급등 임계
+              <input id="hypeThreshold" type="text" value="15" />
+              <small class="muted-sm">권장 5~30</small>
+            </label>
+            <label class="checkline">
+              <input id="filingEnabled" type="checkbox" checked />
+              신규 공시 알림 활성화
+            </label>
+          </div>
+          <div class="actions">
+            <button id="saveRulesBtn" class="btn secondary">알림 조건 저장</button>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <h3>Step 3. 알림 채널 설정</h3>
+          <div class="auto-grid">
+            <label>
+              알림 이메일
+              <input id="notifyEmail" type="text" placeholder="example@domain.com" />
+              <small id="emailValidation" class="muted-sm"></small>
+            </label>
+            <label>
+              웹훅 URL
+              <input id="notifyWebhook" type="text" placeholder="https://your-webhook.url" />
+              <small id="webhookValidation" class="muted-sm"></small>
+            </label>
+            <label>
+              OneSignal External ID
+              <input id="onesignalExternalId" type="text" placeholder="기본값: 사용자 ID" />
+            </label>
+            <label class="checkline">
+              <input id="pushEnabled" type="checkbox" />
+              OneSignal 푸시 활성화
+            </label>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <h3>Step 4. 저장/테스트 실행</h3>
+          <div class="actions">
+            <button id="saveChannelsBtn" class="btn primary">채널 저장</button>
+            <button id="testNotifyBtn" class="btn secondary">테스트 알림 발송</button>
+            <button id="scanNowBtn" class="btn ghost">즉시 스캔</button>
+            <button id="refreshRankingBtn" class="btn ghost">우량주 랭킹 갱신</button>
+            <button id="refreshAutoBtn" class="btn ghost">목록 새로고침</button>
+          </div>
+        </div>
+
+        <div class="intel-grid">
+          <div>
+            <h3>관심종목</h3>
+            <ul id="watchlistView" class="reason-list"></ul>
+          </div>
+          <div>
+            <h3>최근 알림</h3>
+            <ul id="notificationView" class="reason-list"></ul>
+          </div>
+        </div>
+
+        <div>
+          <h3>저평가 우량주 랭킹</h3>
+          <ul id="rankingView" class="reason-list"></ul>
+        </div>
+
+        <div>
+          <h3>섹터별 종목</h3>
+          <ul id="sectorView" class="reason-list"></ul>
+        </div>
+      </section>
+    </main>
+
+    <div id="loadingOverlay" class="loading-overlay" aria-live="polite" aria-hidden="true">
+      <div class="loading-modal">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <div id="loadingOverlayText" class="loading-text">조회 중...</div>
+      </div>
+    </div>
+
+    <div id="confirmModal" class="confirm-modal" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="confirm-box">
+        <strong id="confirmMessage">정말 삭제하시겠습니까?</strong>
+        <div class="actions">
+          <button id="confirmCancelBtn" class="btn ghost" type="button">취소</button>
+          <button id="confirmOkBtn" class="btn primary" type="button">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const el = document.getElementById("bootDiagnostics");
+        const set = (text, level) => {
+          if (!el) return;
+          el.textContent = text;
+          el.dataset.level = level || "info";
+        };
+        window.__stockBoot = { appLoaded: false, appInitDone: false };
+        set("JS 로딩 중...", "info");
+        window.addEventListener("error", (ev) => {
+          const file = String(ev.filename || "").split("/").pop();
+          set(`JS 오류: ${ev.message} (${file}:${ev.lineno || "-"})`, "error");
+        });
+        window.addEventListener("unhandledrejection", (ev) => {
+          const msg = ev?.reason?.message || String(ev?.reason || "Promise rejection");
+          set(`JS Promise 오류: ${msg}`, "error");
+        });
+        setTimeout(() => {
+          if (!window.__stockBoot.appLoaded) {
+            set("app 스크립트 로드 실패: 강력 새로고침(Ctrl/Cmd+Shift+R) 또는 캐시 삭제 필요", "error");
+          } else if (!window.__stockBoot.appInitDone) {
+            set("app 초기화 지연 중...", "warn");
+          }
+        }, 2500);
+      })();
+    </script>
+    <script src="./decision_ui_v35.js?v=42" defer></script>
+    <script src="./app_main_v35.js?v=42" defer></script>
+  </body>
+</html>

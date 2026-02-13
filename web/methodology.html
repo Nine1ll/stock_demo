@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>용어/산식 설명 | Stock Value Decision App</title>
+    <meta name="description" content="서비스에서 사용하는 핵심 용어와 점수 산식 설명" />
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .doc-wrap {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 20px;
+        display: grid;
+        gap: 12px;
+      }
+      .doc-card {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        padding: 14px;
+      }
+      .doc-card h2 {
+        margin: 0 0 8px;
+        font-size: 1.1rem;
+      }
+      .doc-card h3 {
+        margin: 10px 0 6px;
+        font-size: 0.96rem;
+      }
+      .doc-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+        font-size: 0.9rem;
+      }
+      .doc-table th,
+      .doc-table td {
+        border: 1px solid #e0e8f3;
+        padding: 8px 10px;
+        vertical-align: top;
+        text-align: left;
+      }
+      .doc-table th {
+        background: #f3f8ff;
+        color: #28476b;
+      }
+      .mono {
+        font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      }
+      .list {
+        margin: 8px 0 0;
+        padding-left: 18px;
+      }
+      .list li {
+        margin-bottom: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="doc-wrap">
+      <header class="hero">
+        <h1>용어/산식 설명</h1>
+        <p>앱에서 보이는 지표가 무엇을 의미하고, 어떤 규칙으로 점수화되는지 정리한 문서입니다.</p>
+      </header>
+
+      <section class="doc-card">
+        <h2>1. 핵심 용어</h2>
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>용어</th>
+              <th>의미</th>
+              <th>해석 팁</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>종합점수(Undervalued Rank)</td>
+              <td>밸류/품질/기술력/시장영향/과열을 합성한 0~100 점수</td>
+              <td>같은 섹터 내 상대순위와 함께 보는 것이 좋음</td>
+            </tr>
+            <tr>
+              <td>밸류(Valuation)</td>
+              <td>PER/PBR과 품질/과열을 반영한 가격 매력도 점수</td>
+              <td>높을수록 상대 저평가 가능성</td>
+            </tr>
+            <tr>
+              <td>품질(Quality)</td>
+              <td>ROE, 영업마진, 밸류 건전성, 변동성, 시총 안정성 반영</td>
+              <td>높을수록 펀더멘털 체력 우수</td>
+            </tr>
+            <tr>
+              <td>기술력(Tech Strength / Moat)</td>
+              <td>기술자료/공시/뉴스 신호와 테마 적합도를 반영</td>
+              <td>높을수록 기술/사업 연결 강함</td>
+            </tr>
+            <tr>
+              <td>자본력(Capital Power)</td>
+              <td>시가총액, 부채비율, 유동성(cash ratio) 기반 재무 체력</td>
+              <td>낮으면 변동장 방어력 약화 가능</td>
+            </tr>
+            <tr>
+              <td>시장영향(Market Impact)</td>
+              <td>시총, 뉴스 밀도, 가격 모멘텀 기반 시장 주목도</td>
+              <td>높아도 과열이 높으면 추격매수 주의</td>
+            </tr>
+            <tr>
+              <td>과열(Hype)</td>
+              <td>급등률/고평가 배수/뉴스 과다 노출 기반 과열도</td>
+              <td>높을수록 단기 변동성 리스크 증가</td>
+            </tr>
+            <tr>
+              <td>섹터열기(Heat)</td>
+              <td>최근 수급·뉴스·가격 탄력 기반 섹터 온도</td>
+              <td>높고 체력이 낮으면 동반급등 함정 가능</td>
+            </tr>
+            <tr>
+              <td>체력(Resilience)</td>
+              <td>품질+자본력+밸류를 과열 패널티로 보정한 내구성</td>
+              <td>높을수록 추세 지속/회복력 기대</td>
+            </tr>
+            <tr>
+              <td>시그널</td>
+              <td>상승 우세 / 중립 / 하락 우세</td>
+              <td>단기/중기/장기 시그널을 함께 확인</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="doc-card">
+        <h2>2. 주요 산식</h2>
+        <h3>2-1. 종합점수(Undervalued Rank)</h3>
+        <p class="mono">rank = 0.27*quality + 0.25*tech_strength + 0.24*market_impact + 0.24*valuation - 0.10*hype</p>
+        <p class="muted-sm">모든 점수는 0~100으로 클램프됩니다.</p>
+
+        <h3>2-2. 밸류 점수(Valuation)</h3>
+        <ul class="list">
+          <li>PER 낮을수록 가점, 과도하게 높으면 감점</li>
+          <li>PBR 낮을수록 가점, 과도하게 높으면 감점</li>
+          <li>품질 점수 높으면 가점</li>
+          <li>과열 점수 높으면 감점</li>
+        </ul>
+
+        <h3>2-3. 품질 점수(Quality)</h3>
+        <ul class="list">
+          <li>ROE, 영업마진, 합리적 PER/PBR, 낮은 급변동, 충분한 시총에 가중치 부여</li>
+          <li>수익성/안정성 훼손 시 감점</li>
+        </ul>
+
+        <h3>2-4. 과열 점수(Hype)</h3>
+        <ul class="list">
+          <li>최근 급등률, 높은 멀티플, 뉴스 과밀도(건수) 반영</li>
+          <li>테마 과열 국면 식별에 사용</li>
+        </ul>
+
+        <h3>2-5. 섹터열기/체력 분리 지표</h3>
+        <p class="mono">heat_score: 최근 등락, 뉴스량, 과열도 중심</p>
+        <p class="mono">resilience_score: quality/capital_power/valuation - 과열 패널티</p>
+        <ul class="list">
+          <li><span class="mono">heat↑ + resilience↓</span>: 테마동반급등(체력취약)</li>
+          <li><span class="mono">heat↑ + resilience↑</span>: 섹터상승+체력동반(추세지속후보)</li>
+          <li><span class="mono">heat 보통 + resilience↑</span>: 저평가 체력 우위</li>
+        </ul>
+      </section>
+
+      <section class="doc-card">
+        <h2>3. 백테스트(리플레이) 지표 해석</h2>
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>지표</th>
+              <th>의미</th>
+              <th>활용</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>5일 백테스트 평균</td>
+              <td>해당 라벨이 발생한 시점 이후 5영업일 평균 수익률</td>
+              <td>신호 품질의 평균 성능 확인</td>
+            </tr>
+            <tr>
+              <td>승률(Hit Rate)</td>
+              <td>5영업일 후 수익률이 0% 초과인 비율</td>
+              <td>신호의 재현성 점검</td>
+            </tr>
+            <tr>
+              <td>5일 알파</td>
+              <td>해당 라벨 평균 수익률 - 전체 기준선 평균 수익률</td>
+              <td>시장 평균 대비 초과성과 판단</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="doc-card">
+        <h2>4. 해석 가이드(실무형)</h2>
+        <ul class="list">
+          <li>종합점수 단독보다 <span class="mono">섹터열기 + 체력 + 리스크</span>를 함께 보세요.</li>
+          <li>상승 우세여도 과열이 높고 체력이 낮으면 분할/보수 접근이 유리합니다.</li>
+          <li>체력이 높고 밸류가 양호한 종목은 눌림 시나리오에서 우선 검토하세요.</li>
+          <li>동일 섹터 비교표에서 5일 알파가 양수인 종목을 우선 후보로 좁히세요.</li>
+        </ul>
+      </section>
+
+      <section class="doc-card">
+        <h2>5. 주의사항</h2>
+        <ul class="list">
+          <li>본 점수는 의사결정 보조용이며 투자 자문이 아닙니다.</li>
+          <li>외부 API 지연/누락에 따라 일부 지표가 일시 왜곡될 수 있습니다.</li>
+          <li>백테스트는 가격/거래량 프록시 기반 MVP로, 향후 시점정합 펀더멘털 결합이 필요합니다.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

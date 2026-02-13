@@ -1,0 +1,86 @@
+[
+  {
+    "ticker": "RVLT",
+    "name": "Revolt Robotics",
+    "sector": "Robotics",
+    "value_score": 100.0,
+    "hype_score": 40.0,
+    "valuation_label": "undervalued",
+    "decision": "buy",
+    "reasons": [
+      "value: low P/E, low P/B, insider buying",
+      "hype: theme concentration"
+    ]
+  },
+  {
+    "ticker": "TRDN",
+    "name": "Tradion Bank",
+    "sector": "Financials",
+    "value_score": 92.0,
+    "hype_score": 20.0,
+    "valuation_label": "undervalued",
+    "decision": "buy",
+    "reasons": [
+      "value: low P/E, low P/B, insider buying"
+    ]
+  },
+  {
+    "ticker": "MEGX",
+    "name": "MegaX Cloud",
+    "sector": "Technology",
+    "value_score": 87.0,
+    "hype_score": 20.0,
+    "valuation_label": "undervalued",
+    "decision": "buy",
+    "reasons": []
+  },
+  {
+    "ticker": "UTIL",
+    "name": "United Grid Utility",
+    "sector": "Energy",
+    "value_score": 63.0,
+    "hype_score": 20.0,
+    "valuation_label": "fairly valued",
+    "decision": "watch",
+    "reasons": []
+  },
+  {
+    "ticker": "BIOV",
+    "name": "Biovanta Therapeutics",
+    "sector": "Technology",
+    "value_score": 4.0,
+    "hype_score": 50.0,
+    "valuation_label": "overvalued",
+    "decision": "sell",
+    "reasons": [
+      "value: very high P/E, high P/B, high P/S, shrinking earnings",
+      "hype: valuation disconnected"
+    ]
+  },
+  {
+    "ticker": "STBL",
+    "name": "StableWave Holdings",
+    "sector": "Financials",
+    "value_score": 0.0,
+    "hype_score": 100.0,
+    "valuation_label": "overvalued",
+    "decision": "sell",
+    "reasons": [
+      "value: very high P/E, high P/B, high P/S, shrinking earnings",
+      "hype: theme concentration, valuation disconnected, extreme short interest, weak growth vs high multiples, small-cap thematic risk"
+    ]
+  },
+  {
+    "ticker": "QMET",
+    "name": "Quantum Metamall",
+    "sector": "Technology",
+    "value_score": 0.0,
+    "hype_score": 100.0,
+    "valuation_label": "overvalued",
+    "decision": "sell",
+    "reasons": [
+      "value: very high P/E, high P/B, high P/S, high leverage, shrinking revenue, shrinking earnings",
+      "hype: theme concentration, valuation disconnected, extreme short interest, weak growth vs high multiples, small-cap thematic risk"
+    ]
+  }
+]

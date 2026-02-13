@@ -1,0 +1,8 @@
+ticker,name,business_description,themes,price,pe_ratio,pb_ratio,ps_ratio,debt_to_equity,roe,revenue_growth,net_income_growth,fcf_margin,cash_ratio,insider_buy_ratio,short_interest,market_cap
+RVLT,Revolt Robotics,"Industrial robot integrator for factories with recurring maintenance contracts","robotics,automation",42,11,1.4,1.8,0.5,18,12,15,11,1.4,0.03,4,5800000000
+STBL,StableWave Holdings,"Holding company pivoting into stablecoin narrative; limited proprietary payment rails","stablecoin,blockchain,fintech",37,88,9.2,17,1.9,4,3,-6,-2,0.4,0.00,28,1400000000
+MEGX,MegaX Cloud,"Enterprise cloud and cybersecurity platform with sticky annual contracts","cloud,cybersecurity,saas",118,19,3.6,5.1,0.8,16,14,13,12,1.1,0.01,3,42000000000
+BIOV,Biovanta Therapeutics,"Clinical-stage biotech focused on oncology pipeline","biotech,ai",21,999,5.8,22,0.3,-9,7,-15,-28,1.8,0.00,12,2500000000
+TRDN,Tradion Bank,"Regional bank with commercial lending and deposit franchise","bank,lending",29,8,0.9,1.9,1.1,11,6,8,15,0.9,0.02,2,9600000000
+QMET,Quantum Metamall,"Consumer app rebranded around quantum metaverse commerce","quantum,metaverse,ai",13,145,14,25,2.6,-3,-4,-18,-12,0.3,0.00,31,900000000
+UTIL,United Grid Utility,"Regulated electric utility with stable cash generation","utility,energy",55,14,1.6,2.1,1.3,9,4,5,14,0.8,0.01,1,31000000000

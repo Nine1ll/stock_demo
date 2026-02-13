@@ -1,0 +1,10 @@
+{
+  "name": "Stock Value Decision App",
+  "short_name": "StockValue",
+  "description": "섹터 분류와 가치/과열 점수로 매수·매도 의사결정을 지원하는 앱",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f5f7fb",
+  "theme_color": "#0964cc",
+  "lang": "ko"
+}

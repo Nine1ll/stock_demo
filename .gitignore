@@ -1,0 +1,34 @@
+# Secrets / local env
+.env
+.env.*
+!.env.example
+
+# Python cache/build
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Local runtime data
+data/stock_app.db
+data/*.sqlite
+data/*.db
+data/*.db-*
+data/*.sqlite-*
+*.log
+logs/
+
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Deploy keys / certs
+*.pem
+*.key
+*.crt
