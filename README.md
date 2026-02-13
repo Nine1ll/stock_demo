@@ -68,6 +68,8 @@ python3 web_server.py --host 0.0.0.0 --port 8000
 - Oracle Always Free VM 배포 가이드: `DEPLOY_ORACLE_FREE.md`
 - 원클릭 설치 스크립트: `deploy/oracle/setup_oci_free.sh`
 - HTTPS(도메인) 스크립트: `deploy/oracle/setup_caddy_https.sh`
+- Render 배포 가이드: `DEPLOY_RENDER.md`
+- Render Blueprint 파일: `render.yaml`
 
 ### 모바일 홈 화면 설치(PWA)
 - Android Chrome: 메뉴 > `홈 화면에 추가`

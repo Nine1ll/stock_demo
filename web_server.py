@@ -9,6 +9,7 @@ Environment variables:
 - SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS/SMTP_FROM/SMTP_TLS: optional mail sender
 - ONESIGNAL_APP_ID/ONESIGNAL_API_KEY: optional OneSignal push sender
 - DART_API_KEY: optional Korea DART filings API key
+- APP_DATA_DIR: override runtime data directory (sqlite, cache files)
 """
 
 from __future__ import annotations
@@ -36,7 +37,14 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 ROOT_DIR = Path(__file__).resolve().parent
-DATA_DIR = ROOT_DIR / "data"
+data_dir_raw = os.getenv("APP_DATA_DIR", "").strip()
+if data_dir_raw:
+    data_dir_candidate = Path(data_dir_raw).expanduser()
+    if not data_dir_candidate.is_absolute():
+        data_dir_candidate = ROOT_DIR / data_dir_candidate
+    DATA_DIR = data_dir_candidate
+else:
+    DATA_DIR = ROOT_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = DATA_DIR / "stock_app.db"
 SECTOR_SEED_PATH = DATA_DIR / "sector_seed.json"
