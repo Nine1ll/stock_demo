@@ -103,7 +103,8 @@
   {"market":"KR","sector":"인터넷플랫폼","ticker":"035420","name":"NAVER"},
   {"market":"KR","sector":"인터넷플랫폼","ticker":"035720","name":"카카오"},
   {"market":"KR","sector":"인터넷플랫폼","ticker":"251270","name":"넷마블"},
-  {"market":"KR","sector":"인터넷플랫폼","ticker":"036570","name":"엔씨소프트"},
+  {"market":"KR","sector":"게임/콘텐츠","ticker":"036570","name":"엔씨소프트"},
+  {"market":"KR","sector":"금융","ticker":"323410","name":"카카오뱅크"},
   {"market":"KR","sector":"인터넷플랫폼","ticker":"263750","name":"펄어비스"},
   {"market":"KR","sector":"인터넷플랫폼","ticker":"112040","name":"위메이드"},
 

@@ -271,9 +271,11 @@ def canonical_sector(sector: str, name: str = "", industry: str = "") -> str:
         return "2차전지"
     if has_any(["it서비스", "itservice", "itservices", "softwareitservices", "software&itservices", "si", "systemintegration", "erp", "클라우드서비스"]):
         return "IT서비스"
+    if has_any(["게임", "gaming", "game", "videogame", "mmorpg", "rpg", "엔씨소프트", "카카오게임즈", "넷마블", "크래프톤"]):
+        return "게임/콘텐츠"
     if has_any(["증권", "securities", "broker", "brokerage", "capitalmarkets", "미래에셋증권", "키움증권", "sk증권", "nh투자증권", "삼성증권"]):
         return "증권"
-    if has_any(["금융", "finance", "financial", "bank", "insurance", "보험", "금융지주"]):
+    if has_any(["금융", "finance", "financial", "bank", "banking", "insurance", "보험", "금융지주", "카카오뱅크", "인터넷은행"]):
         return "금융"
     if has_any(["ai", "인공지능", "llm", "gpu", "클라우드", "platform", "internet", "software", "saas"]):
         return "AI"
@@ -281,14 +283,14 @@ def canonical_sector(sector: str, name: str = "", industry: str = "") -> str:
     mapping = {
         "technology": "AI",
         "semiconductors": "반도체",
-        "인터넷플랫폼": "AI",
+        "인터넷플랫폼": "인터넷플랫폼",
         "로보틱스": "휴머노이드",
         "robotics": "휴머노이드",
         "consumer cyclical": "자동차",
         "capital goods": "기계장비",
         "financial services": "금융",
         "healthcare": "바이오",
-        "communication services": "AI",
+        "communication services": "게임/콘텐츠",
         "basic materials": "화학",
         "utilities": "에너지",
     }

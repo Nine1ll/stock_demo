@@ -60,10 +60,12 @@ const SECTOR_TECH_KEYWORDS = {
 };
 
 const COMPANY_SECTOR_HINTS = [
+  { terms: ["엔씨소프트", "카카오게임즈", "넷마블", "크래프톤", "펄어비스", "게임", "gaming", "videogame"], sector: "게임/콘텐츠" },
+  { terms: ["카카오뱅크", "토스뱅크", "케이뱅크", "인터넷은행", "bank"], sector: "금융" },
   { terms: ["sfa반도체", "sfa 반도체", "한미반도체", "리노공업"], sector: "반도체" },
   { terms: ["두산에너빌리티", "한전기술", "한전kps", "원전", "원자력"], sector: "원자력" },
   { terms: ["레인보우로보틱스", "두산로보틱스", "휴머노이드", "robot"], sector: "휴머노이드" },
-  { terms: ["naver", "카카오", "google", "alphabet", "meta", "openai", "microsoft"], sector: "AI" },
+  { terms: ["naver", "google", "alphabet", "meta", "openai", "microsoft"], sector: "AI" },
   { terms: ["반도체", "semiconductor"], sector: "반도체" },
   { terms: ["삼성전자", "sk하이닉스", "하이닉스", "nvidia", "amd", "tsm"], sector: "반도체" },
   { terms: ["현대차", "기아", "tesla", "toyota", "현대모비스", "한온시스템", "만도", "hl만도"], sector: "자동차" },
@@ -73,7 +75,7 @@ const COMPANY_SECTOR_HINTS = [
   { terms: ["한화솔루션", "lg화학", "롯데케미칼", "금양"], sector: "화학" },
   { terms: ["한전산업", "한전kps", "한국전력"], sector: "에너지" },
   { terms: ["보스턴다이나믹스"], sector: "휴머노이드" },
-  { terms: ["인터넷플랫폼", "technology"], sector: "AI" },
+  { terms: ["인터넷플랫폼", "technology"], sector: "인터넷플랫폼" },
 ];
 
 const COMPANY_TECH_KEYWORDS = {
