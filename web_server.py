@@ -86,6 +86,16 @@ CACHE_LOCK = threading.Lock()
 ALERT_THREAD_STOP = threading.Event()
 
 
+def log_event(event: str, **fields: Any) -> None:
+    payload = {"event": event, "time": utc_now_iso()}
+    payload.update(fields)
+    try:
+        print(json.dumps(payload, ensure_ascii=False), flush=True)
+    except Exception:
+        # Never fail request flow due to logging.
+        pass
+
+
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -3271,6 +3281,46 @@ def lookup_company_us_finnhub(query: str, limit: int = 10) -> List[Dict[str, Any
     return out
 
 
+def lookup_company_us_alias(query: str, limit: int = 20) -> List[Dict[str, Any]]:
+    q = normalize_search_key(query)
+    if not q:
+        return []
+    # Common Korean/English aliases for major US names.
+    aliases = [
+        ("AAPL", "Apple Inc.", ["apple", "애플"]),
+        ("MSFT", "Microsoft Corp.", ["microsoft", "마이크로소프트"]),
+        ("NVDA", "NVIDIA Corp.", ["nvidia", "엔비디아"]),
+        ("TSLA", "Tesla Inc.", ["tesla", "테슬라"]),
+        ("AMZN", "Amazon.com Inc.", ["amazon", "아마존"]),
+        ("GOOGL", "Alphabet Inc.", ["google", "alphabet", "구글", "알파벳"]),
+        ("META", "Meta Platforms", ["meta", "facebook", "페이스북", "메타"]),
+        ("NFLX", "Netflix", ["netflix", "넷플릭스"]),
+        ("AMD", "Advanced Micro Devices", ["amd"]),
+        ("AVGO", "Broadcom Inc.", ["broadcom", "브로드컴"]),
+        ("TSM", "Taiwan Semiconductor ADR", ["tsm", "tsmc", "대만반도체"]),
+        ("PLTR", "Palantir Technologies", ["palantir", "팔란티어"]),
+        ("BRK.B", "Berkshire Hathaway", ["berkshire", "버크셔", "워런버핏", "버핏"]),
+        ("JPM", "JPMorgan Chase", ["jpm", "jp모건", "제이피모건"]),
+    ]
+    out: List[Dict[str, Any]] = []
+    lim = max(1, min(limit, 100))
+    for ticker, name, terms in aliases:
+        match_text = " ".join([ticker, name] + terms)
+        if q in normalize_search_key(match_text):
+            out.append(
+                {
+                    "ticker": ticker,
+                    "name": name,
+                    "sector": find_sector_from_seed(ticker, "US"),
+                    "market": "US",
+                    "source": "us_alias",
+                }
+            )
+        if len(out) >= lim:
+            break
+    return out
+
+
 def yahoo_symbol_to_market_ticker(symbol: str) -> Tuple[str, str]:
     s = str(symbol or "").strip().upper()
     if not s:
@@ -3466,6 +3516,7 @@ def lookup_company(query: str, market: str = "US", limit: int = 20) -> Dict[str,
     local = lookup_company_local(q, lookup_market, limit=limit)
     provider: List[Dict[str, Any]] = []
     if lookup_market in ("US", "ALL"):
+        provider.extend(lookup_company_us_alias(q, limit=limit))
         provider.extend(lookup_company_us_finnhub(q, limit=limit))
     if lookup_market in ("KR", "ALL"):
         provider.extend(lookup_company_kr_dart(q, limit=limit))
@@ -3474,7 +3525,48 @@ def lookup_company(query: str, market: str = "US", limit: int = 20) -> Dict[str,
         provider.extend(lookup_company_kr_alias(q, limit=limit))
     provider.extend(lookup_company_yahoo(q, market=lookup_market, limit=limit))
     items = dedupe_companies(local + provider, limit=limit)
+
+    # Last-resort fallback: treat input itself as ticker when providers are unavailable.
+    if not items:
+        raw = str(q).strip()
+        if lookup_market in ("US", "ALL") and re.match(r"^[A-Za-z][A-Za-z0-9.\-]{0,9}$", raw):
+            t = raw.upper()
+            items.append(
+                {
+                    "ticker": t,
+                    "name": find_company_name_from_seed(t, "US"),
+                    "sector": find_sector_from_seed(t, "US"),
+                    "market": "US",
+                    "source": "input_ticker",
+                }
+            )
+        elif lookup_market in ("KR", "ALL") and re.match(r"^[0-9]{4,6}$", raw):
+            t = normalize_kr_ticker(raw)
+            items.append(
+                {
+                    "ticker": t,
+                    "name": find_company_name_from_seed(t, "KR") or get_kr_profile(t).get("name", ""),
+                    "sector": find_sector_from_seed(t, "KR"),
+                    "market": "KR",
+                    "source": "input_ticker",
+                }
+            )
+
+    items = dedupe_companies(items, limit=limit)
     items = sorted(items, key=lambda x: (str(x.get("market", "")), str(x.get("ticker", ""))))
+    src_counts: Dict[str, int] = {}
+    for it in items:
+        src = str(it.get("source") or "unknown")
+        src_counts[src] = src_counts.get(src, 0) + 1
+    log_event(
+        "company_lookup",
+        query=q,
+        market=lookup_market,
+        count=len(items),
+        local_count=len(local),
+        provider_count=len(provider),
+        source_counts=src_counts,
+    )
     return {"ok": True, "query": q, "market": lookup_market, "count": len(items), "items": items}
 
 

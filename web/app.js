@@ -217,6 +217,7 @@ let latestQuoteData = null;
 let latestDecisionTicker = "";
 let latestDecisionMarket = "US";
 let loadingOverlayCount = 0;
+let loadingOverlayTimer = null;
 let latestNewsData = { ok: false, items: [] };
 let latestFilingData = { ok: false, items: [] };
 let latestTechData = { ok: false, items: [] };
@@ -683,6 +684,10 @@ function formatPriceWithUnit(value, market, fallback = "-") {
 
 function showLoadingOverlay(message = "조회 중...") {
   loadingOverlayCount += 1;
+  if (loadingOverlayTimer) {
+    clearTimeout(loadingOverlayTimer);
+    loadingOverlayTimer = null;
+  }
   if (els.loadingOverlayText) {
     els.loadingOverlayText.textContent = String(message || "조회 중...");
   }
@@ -690,11 +695,24 @@ function showLoadingOverlay(message = "조회 중...") {
     els.loadingOverlay.classList.add("show");
     els.loadingOverlay.setAttribute("aria-hidden", "false");
   }
+  // Failsafe: avoid permanent blocked UI when one async request hangs.
+  loadingOverlayTimer = setTimeout(() => {
+    loadingOverlayCount = 0;
+    if (els.loadingOverlay) {
+      els.loadingOverlay.classList.remove("show");
+      els.loadingOverlay.setAttribute("aria-hidden", "true");
+    }
+    loadingOverlayTimer = null;
+  }, 45000);
 }
 
 function hideLoadingOverlay() {
   loadingOverlayCount = Math.max(0, loadingOverlayCount - 1);
   if (loadingOverlayCount > 0) return;
+  if (loadingOverlayTimer) {
+    clearTimeout(loadingOverlayTimer);
+    loadingOverlayTimer = null;
+  }
   if (els.loadingOverlay) {
     els.loadingOverlay.classList.remove("show");
     els.loadingOverlay.setAttribute("aria-hidden", "true");
@@ -2708,6 +2726,7 @@ function bindEvents() {
   window.addEventListener("resize", () => setMobileView(currentMobileView));
 
   if (els.loadIntelBtn) {
+    els.loadIntelBtn.dataset.boundPrimary = "1";
     els.loadIntelBtn.addEventListener("click", () => {
       loadIntelligence().catch((err) => {
         if (els.intelMeta) {
@@ -2720,6 +2739,7 @@ function bindEvents() {
   }
 
   if (els.searchCompanyBtn) {
+    els.searchCompanyBtn.dataset.boundPrimary = "1";
     els.searchCompanyBtn.addEventListener("click", () => {
       searchCompanyByName().catch((err) => {
         els.intelMeta.textContent = `오류: ${err.message}`;
@@ -3073,7 +3093,7 @@ function bindEvents() {
 }
 
 function bindCriticalFallbacks() {
-  if (els.searchCompanyBtn && !els.searchCompanyBtn.dataset.boundFallback) {
+  if (els.searchCompanyBtn && !els.searchCompanyBtn.dataset.boundPrimary && !els.searchCompanyBtn.dataset.boundFallback) {
     els.searchCompanyBtn.dataset.boundFallback = "1";
     els.searchCompanyBtn.addEventListener("click", () => {
       searchCompanyByName().catch((err) => {
@@ -3085,7 +3105,7 @@ function bindCriticalFallbacks() {
       });
     });
   }
-  if (els.loadIntelBtn && !els.loadIntelBtn.dataset.boundFallback) {
+  if (els.loadIntelBtn && !els.loadIntelBtn.dataset.boundPrimary && !els.loadIntelBtn.dataset.boundFallback) {
     els.loadIntelBtn.dataset.boundFallback = "1";
     els.loadIntelBtn.addEventListener("click", () => {
       loadIntelligence().catch((err) => {
