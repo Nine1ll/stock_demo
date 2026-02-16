@@ -3372,9 +3372,6 @@ function init() {
       // no-op
     });
   }
-  if (els.spotlightQuery && !els.spotlightQuery.value) {
-    els.spotlightQuery.value = "AAPL m:US";
-  }
   if (els.userId || els.watchlistView || els.autoMeta) {
     refreshAutoPanel().catch(() => {
       // no-op

@@ -1371,7 +1371,7 @@ def get_quote(ticker: str, market: str = "US") -> Dict[str, Any]:
 
 def fetch_price_history_yahoo(ticker: str, market: str, period: str = "3mo", interval: str = "1d") -> Dict[str, Any]:
     symbol = symbol_for_yahoo(ticker, market)
-    range_val = period if period in {"1mo", "3mo"} else "3mo"
+    range_val = period if period in {"1mo", "3mo", "1y"} else "3mo"
     interval_val = interval if interval in {"1d", "1wk"} else "1d"
     try:
         url = (
@@ -1431,7 +1431,7 @@ def fetch_price_history_yahoo(ticker: str, market: str, period: str = "3mo", int
 def get_price_history(ticker: str, market: str = "US", period: str = "3mo") -> Dict[str, Any]:
     t = canonicalize_input_ticker(ticker, market)
     m = clean_market(market)
-    p = period if period in {"1mo", "3mo"} else "3mo"
+    p = period if period in {"1mo", "3mo", "1y"} else "3mo"
 
     def producer() -> Dict[str, Any]:
         out = fetch_price_history_yahoo(t, m, period=p, interval="1d")
@@ -2947,63 +2947,259 @@ def compute_risk_breakdown(quote: Dict[str, Any], fundamentals: Dict[str, Any], 
     return out
 
 
+def _extract_history_arrays(history: Dict[str, Any]) -> Tuple[List[float], List[float]]:
+    points = history.get("points") or []
+    closes = [to_float_or_none(p.get("close")) for p in points]
+    closes = [float(x) for x in closes if x not in (None, 0)]
+    vols = [to_float_or_none(p.get("volume")) for p in points]
+    vols = [float(x) for x in vols if x not in (None, 0)]
+    return closes, vols
+
+
+def _moving_avg(series: List[float], window: int) -> Optional[float]:
+    if len(series) < max(2, window):
+        return None
+    return sum(series[-window:]) / float(window)
+
+
+def _compute_rsi14(closes: List[float]) -> Optional[float]:
+    if len(closes) < 16:
+        return None
+    gains = 0.0
+    losses = 0.0
+    for i in range(-14, 0):
+        d = closes[i] - closes[i - 1]
+        if d >= 0:
+            gains += d
+        else:
+            losses += abs(d)
+    avg_gain = gains / 14.0
+    avg_loss = losses / 14.0
+    if avg_loss <= 1e-9:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _estimate_news_sentiment(news: Dict[str, Any]) -> float:
+    items = news.get("items") or []
+    if not items:
+        return 50.0
+    pos_kw = ["beat", "upgrade", "strong", "record", "surge", "partnership", "수주", "호실적", "상향", "급증", "신제품"]
+    neg_kw = ["miss", "downgrade", "probe", "delay", "lawsuit", "cut", "recession", "부진", "하향", "소송", "규제", "리콜"]
+    score = 50.0
+    for item in items[:30]:
+        text = normalize_search_key(f"{item.get('headline', '')} {item.get('summary', '')}")
+        if any(normalize_search_key(k) in text for k in pos_kw):
+            score += 4.0
+        if any(normalize_search_key(k) in text for k in neg_kw):
+            score -= 4.0
+    return clamp(score, 0.0, 100.0)
+
+
+def _label_for_horizon(score: float, fundamentals_strong: bool = False) -> str:
+    if score >= 62:
+        return "상승 우세"
+    if score <= 42:
+        return "조정 구간" if fundamentals_strong else "하락 우세"
+    return "중립"
+
+
+def generate_description(
+    horizon: str,
+    indicators: Dict[str, float],
+    fundamentals_strong: bool = False,
+    dip_buy: bool = False,
+) -> str:
+    h = str(horizon or "").lower()
+    if h == "short":
+        return (
+            f"최근 뉴스 톤 {indicators.get('news_sentiment', 50.0):.1f} / RSI14 {indicators.get('rsi14', 50.0):.1f} / "
+            f"거래량 스파이크 {indicators.get('volume_spike', 1.0):.2f}배 영향으로 단기 변동성이 확대될 수 있습니다."
+        )
+    if h == "mid":
+        return (
+            f"현재가는 20일선 대비 {indicators.get('dist_ma20', 0.0):+.2f}%, 60일선 대비 {indicators.get('dist_ma60', 0.0):+.2f}%로 "
+            f"중기 지지/저항 구간을 테스트 중이며, 분기 이익 추세 점수는 {indicators.get('earnings_trend', 50.0):.1f}입니다."
+        )
+    base = (
+        f"단기 노이즈와 별개로 200일 추세 점수 {indicators.get('ma200_trend', 50.0):.1f}, "
+        f"PBR 밴드 위치 {indicators.get('pbr_band', 50.0):.1f}, 1년 CAGR {indicators.get('cagr_1y', 0.0):+.2f}%를 확인했습니다."
+    )
+    if dip_buy and fundamentals_strong:
+        return f"{base} 펀더멘털 체력이 유지되어 장기 관점의 저평가 구간(눌림 매수) 가능성이 있습니다."
+    return f"{base} 장기 추세 유지 여부는 이익 성장의 지속성 확인이 핵심입니다."
+
+
+def calculate_verdict(value_score: float, technical_score: float) -> Dict[str, Any]:
+    base = clamp((value_score * 0.62) + (technical_score * 0.38), 0.0, 100.0)
+    result = {
+        "final_score": round(base, 2),
+        "verdict": "Neutral / Watch",
+        "tag": "",
+        "tone": "neutral",
+        "is_dip_buy": False,
+    }
+    if value_score > 60 and technical_score < 40:
+        boosted = clamp(base + 15.0, 0.0, 100.0)
+        result.update(
+            {
+                "final_score": round(boosted, 2),
+                "verdict": "Oversold / Buy the Dip",
+                "tag": "저평가 구간",
+                "tone": "opportunity",
+                "is_dip_buy": True,
+            }
+        )
+        return result
+    if value_score < 40 and technical_score < 40:
+        result.update(
+            {
+                "final_score": round(min(base, 25.0), 2),
+                "verdict": "Strong Sell",
+                "tag": "Falling Knife",
+                "tone": "danger",
+            }
+        )
+        return result
+    if base >= 62:
+        result.update({"verdict": "Buy", "tone": "positive"})
+    elif base <= 38:
+        result.update({"verdict": "Sell", "tone": "danger"})
+    return result
+
+
 def compute_personalized_signals(
     quote: Dict[str, Any],
     fundamentals: Dict[str, Any],
     news: Dict[str, Any],
     risk: Dict[str, float],
+    history_1y: Dict[str, Any],
+    value_score: float,
+    technical_score: Optional[float],
     horizon_pref: str,
     risk_pref: str,
 ) -> Dict[str, Any]:
+    closes, vols = _extract_history_arrays(history_1y)
+    cur = to_float(quote.get("current_price"), closes[-1] if closes else 0.0)
     pct = to_float(quote.get("percent_change"), 0.0)
-    pe = to_float(fundamentals.get("pe_ratio"), -1.0)
-    pb = to_float(fundamentals.get("pb_ratio"), -1.0)
+    rsi14 = _compute_rsi14(closes)
+    news_sent = _estimate_news_sentiment(news)
+    vol_spike = 1.0
+    if len(vols) >= 20 and vols[-1] > 0:
+        avg20 = sum(vols[-20:]) / 20.0
+        if avg20 > 0:
+            vol_spike = vols[-1] / avg20
+
+    ma20 = _moving_avg(closes, 20)
+    ma60 = _moving_avg(closes, 60)
+    ma200 = _moving_avg(closes, 200)
+    dist_ma20 = ((cur - ma20) / ma20) * 100.0 if ma20 and ma20 > 0 else 0.0
+    dist_ma60 = ((cur - ma60) / ma60) * 100.0 if ma60 and ma60 > 0 else 0.0
+
+    ma200_trend = 50.0
+    if len(closes) >= 220 and ma200 and ma200 > 0:
+        prev_ma200 = sum(closes[-220:-20]) / 200.0
+        slope = ((ma200 - prev_ma200) / prev_ma200) * 100.0 if prev_ma200 > 0 else 0.0
+        ma200_trend = clamp(50.0 + ((cur - ma200) / ma200) * 120.0 + slope * 14.0, 0.0, 100.0)
+
+    pbr = to_float(fundamentals.get("pb_ratio"), -1.0)
+    if pbr <= 0:
+        pbr_band = 50.0
+    elif pbr <= 1.0:
+        pbr_band = 82.0
+    elif pbr <= 1.8:
+        pbr_band = 68.0
+    elif pbr <= 3.0:
+        pbr_band = 52.0
+    else:
+        pbr_band = clamp(48.0 - (pbr - 3.0) * 10.0, 10.0, 48.0)
+
+    cagr_1y = 0.0
+    if len(closes) >= 200 and closes[0] > 0:
+        cagr_1y = ((closes[-1] / closes[0]) - 1.0) * 100.0
+
     roe = to_float(fundamentals.get("roe"), -1.0)
-    news_count = int(news.get("count") or 0)
-
-    value = 55.0
-    if 0 < pe <= 15:
-        value += 18
-    elif pe > 35:
-        value -= 12
-    if 0 < pb <= 1.5:
-        value += 10
-    elif pb > 4:
-        value -= 8
-
-    quality = 50.0
+    opm = to_float(fundamentals.get("operating_margin_ttm"), -1.0)
+    earnings_trend = 50.0
     if roe >= 12:
-        quality += 18
+        earnings_trend += 14.0
     elif 0 <= roe < 6:
-        quality -= 10
+        earnings_trend -= 12.0
+    if opm >= 12:
+        earnings_trend += 10.0
+    elif 0 <= opm < 5:
+        earnings_trend -= 10.0
+    earnings_trend = clamp(earnings_trend, 0.0, 100.0)
 
-    momentum = 50.0 + clamp(pct * 2.2, -20, 20) + clamp(news_count * 1.2, 0, 12)
-    risk_penalty = risk.get("total", 5.0) * 4.0
+    risk_penalty = risk.get("total", 5.0) * {"conservative": 5.2, "neutral": 4.0, "aggressive": 3.2}.get(risk_pref, 4.0)
+    fundamentals_strong = value_score >= 60.0
 
-    horizon_weights = {
-        "short": {"value": 0.2, "quality": 0.15, "momentum": 0.5, "risk": -0.25},
-        "mid": {"value": 0.35, "quality": 0.25, "momentum": 0.2, "risk": -0.2},
-        "long": {"value": 0.3, "quality": 0.4, "momentum": 0.1, "risk": -0.2},
+    short_raw = (
+        0.34 * clamp(50.0 + pct * 2.0, 0.0, 100.0)
+        + 0.24 * clamp(100.0 - abs((rsi14 if rsi14 is not None else 50.0) - 50.0) * 2.0, 0.0, 100.0)
+        + 0.22 * news_sent
+        + 0.20 * clamp(50.0 + (vol_spike - 1.0) * 25.0, 0.0, 100.0)
+        - risk_penalty * 0.10
+    )
+    short_score = clamp(short_raw, 0.0, 100.0)
+
+    mid_raw = (
+        0.34 * clamp(60.0 + dist_ma20 * 1.1, 0.0, 100.0)
+        + 0.38 * clamp(60.0 + dist_ma60 * 1.0, 0.0, 100.0)
+        + 0.28 * earnings_trend
+        - risk_penalty * 0.12
+    )
+    mid_score = clamp(mid_raw, 0.0, 100.0)
+
+    long_raw = (
+        0.42 * ma200_trend
+        + 0.26 * pbr_band
+        + 0.32 * clamp(50.0 + cagr_1y * 1.2, 0.0, 100.0)
+        - risk_penalty * 0.14
+    )
+    long_score = clamp(long_raw, 0.0, 100.0)
+    technical_effective = clamp(
+        to_float_or_none(technical_score) if technical_score is not None else (short_score * 0.65 + mid_score * 0.35),
+        0.0,
+        100.0,
+    )
+    verdict = calculate_verdict(value_score, technical_effective)
+
+    out: Dict[str, Any] = {
+        "short": {
+            "score": round(short_score, 2),
+            "label": _label_for_horizon(short_score, fundamentals_strong),
+            "reasons": [generate_description("short", {"news_sentiment": news_sent, "rsi14": float(rsi14 or 50.0), "volume_spike": vol_spike}, fundamentals_strong, verdict.get("is_dip_buy", False))],
+            "indicators": {
+                "daily_change_pct": round(pct, 3),
+                "rsi14": round(float(rsi14 or 50.0), 2),
+                "news_sentiment": round(news_sent, 2),
+                "volume_spike": round(vol_spike, 3),
+            },
+        },
+        "mid": {
+            "score": round(mid_score, 2),
+            "label": _label_for_horizon(mid_score, fundamentals_strong),
+            "reasons": [generate_description("mid", {"dist_ma20": dist_ma20, "dist_ma60": dist_ma60, "earnings_trend": earnings_trend}, fundamentals_strong, verdict.get("is_dip_buy", False))],
+            "indicators": {
+                "dist_ma20_pct": round(dist_ma20, 3),
+                "dist_ma60_pct": round(dist_ma60, 3),
+                "earnings_trend": round(earnings_trend, 2),
+            },
+        },
+        "long": {
+            "score": round(long_score, 2),
+            "label": _label_for_horizon(long_score, fundamentals_strong),
+            "reasons": [generate_description("long", {"ma200_trend": ma200_trend, "pbr_band": pbr_band, "cagr_1y": cagr_1y}, fundamentals_strong, verdict.get("is_dip_buy", False))],
+            "indicators": {
+                "ma200_trend": round(ma200_trend, 2),
+                "pbr_band": round(pbr_band, 2),
+                "cagr_1y_pct": round(cagr_1y, 3),
+            },
+        },
+        "verdict_model": {**verdict, "technical_score_used": round(technical_effective, 2), "value_score_used": round(value_score, 2)},
     }
-    risk_mult = {"conservative": 1.25, "neutral": 1.0, "aggressive": 0.8}.get(risk_pref, 1.0)
-    w_default = horizon_weights.get(horizon_pref, horizon_weights["mid"])
-
-    out: Dict[str, Any] = {}
-    for key in ("short", "mid", "long"):
-        w = horizon_weights[key]
-        score = (
-            (value * w["value"])
-            + (quality * w["quality"])
-            + (momentum * w["momentum"])
-            + ((risk_penalty * risk_mult) * w["risk"])
-        )
-        score = clamp(score, 0, 100)
-        reasons = [
-            f"모멘텀 점수 {momentum:.1f} (등락률 {pct:.2f}%, 뉴스 {news_count}건)",
-            f"밸류 점수 {value:.1f} (PER {pe if pe>0 else '-'} / PBR {pb if pb>0 else '-'})",
-            f"리스크 패널티 {risk_penalty * risk_mult:.1f} (총 리스크 {risk.get('total', 0):.1f}/10)",
-        ]
-        out[key] = {"score": round(score, 2), "label": signal_label(score), "reasons": reasons}
     return out
 
 
@@ -3151,17 +3347,28 @@ def build_decision_intel(
     fundamentals = get_fundamentals(ticker, market=market)
     news = get_news(ticker, market=market, days=7)
     filings = get_sec_filings(ticker, market=market, limit=5)
+    history_1y = get_price_history(ticker, market=market, period="1y")
 
     sector = canonical_sector(str(fundamentals.get("sector") or ""), str(fundamentals.get("name") or resolve_company_name(ticker, market)), str(fundamentals.get("industry") or ""))
     risk = compute_risk_breakdown(quote, fundamentals, market, sector)
-    signals = compute_personalized_signals(quote, fundamentals, news, risk, horizon_pref, risk_pref)
-    relative = compute_relative_comparison(ticker, market, sector, fundamentals)
     hype = compute_hype_score(quote, fundamentals, news)
     quality = compute_quality_score(quote, fundamentals)
     capital_power = compute_capital_power_score(fundamentals, market)
     market_impact = compute_market_impact_score(quote, fundamentals, news)
     tech_strength = compute_technology_strength_score(get_technology(ticker, max_results=5), news, filings, sector)
     valuation = compute_valuation_score(fundamentals, quality, hype)
+    signals = compute_personalized_signals(
+        quote,
+        fundamentals,
+        news,
+        risk,
+        history_1y,
+        valuation,
+        tech_strength,
+        horizon_pref,
+        risk_pref,
+    )
+    relative = compute_relative_comparison(ticker, market, sector, fundamentals)
     composite = combine_rank(quality, tech_strength, market_impact, valuation, hype)
     sector_heat = compute_sector_heat_signal(quote, news, hype, quality, capital_power, valuation)
     playbook = build_value_playbook(

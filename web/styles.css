@@ -497,6 +497,11 @@ textarea {
   color: #475569;
 }
 
+.sig-correction {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
 .sig-bear {
   background: #fee2e2;
   color: #dc2626;
@@ -807,6 +812,11 @@ input[type="range"]::-moz-range-thumb {
 .verdict-label.sell {
   background: #fee2e2;
   color: #dc2626;
+}
+
+.verdict-label.opportunity {
+  background: #ffedd5;
+  color: #c2410c;
 }
 
 .carousel-wrap {
