@@ -34,7 +34,16 @@
           <span class="chip soft">근거 기반 액션 제안</span>
         </div>
 
-        <div class="intel-controls search-row">
+        <div class="spotlight-wrap" role="search" aria-label="통합 종목 검색">
+          <label class="spotlight-label" for="spotlightQuery">시장·티커·섹터 통합 검색</label>
+          <div class="spotlight-bar">
+            <input id="spotlightQuery" type="text" placeholder="예: 삼성전자 m:KR s:반도체 또는 AAPL m:US" />
+            <button id="spotlightSearchBtn" class="btn primary" type="button">분석 시작</button>
+          </div>
+          <p class="muted-sm">명령 예시: <code>m:US</code>, <code>m:KR</code>, <code>s:반도체</code></p>
+        </div>
+
+        <div class="intel-controls search-row legacy-controls">
           <label>
             회사 이름 검색
             <input id="companyQuery" type="text" placeholder="예: Apple, 삼성전자" />
@@ -49,7 +58,7 @@
           <button id="loadSectorBtn" class="btn ghost" style="display:none;">섹터 종목 불러오기</button>
         </div>
 
-        <div class="intel-controls query-row">
+        <div class="intel-controls query-row legacy-controls">
           <label>
             종목코드(자동)
             <input id="intelTicker" type="text" placeholder="회사 검색 시 자동 입력" readonly />
@@ -161,16 +170,16 @@
                         <option value="aggressive">공격</option>
                       </select>
                     </label>
-                    <label>
-                      환율 변화(%)
+                    <div class="scenario-control">
+                      <span class="scenario-label">환율 변화(%)</span>
                       <input id="scenarioFx" type="range" min="-10" max="10" step="0.5" value="0" />
-                      <small id="scenarioFxText">0.0%</small>
-                    </label>
-                    <label>
-                      EV 판매 성장률(%)
+                      <small id="scenarioFxText" class="scenario-value">0.0%</small>
+                    </div>
+                    <div class="scenario-control">
+                      <span class="scenario-label">EV 판매 성장률(%)</span>
                       <input id="scenarioEv" type="range" min="-20" max="30" step="1" value="5" />
-                      <small id="scenarioEvText">5%</small>
-                    </label>
+                      <small id="scenarioEvText" class="scenario-value">5%</small>
+                    </div>
                   </div>
                   <div class="preset-row">
                     <button id="scenarioPresetConservativeBtn" class="btn ghost" type="button">보수 프리셋</button>

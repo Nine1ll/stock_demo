@@ -133,6 +133,8 @@ const els = {
   scenarioEv: document.getElementById("scenarioEv"),
   scenarioFxText: document.getElementById("scenarioFxText"),
   scenarioEvText: document.getElementById("scenarioEvText"),
+  spotlightQuery: document.getElementById("spotlightQuery"),
+  spotlightSearchBtn: document.getElementById("spotlightSearchBtn"),
   companyQuery: document.getElementById("companyQuery"),
   searchCompanyBtn: document.getElementById("searchCompanyBtn"),
   sectorSelect: document.getElementById("sectorSelect"),
@@ -247,6 +249,46 @@ function parseFloatSafe(value, defaultValue = 0) {
   if (!text) return defaultValue;
   const n = Number.parseFloat(text);
   return Number.isFinite(n) ? n : defaultValue;
+}
+
+function parseSpotlightInput(rawText) {
+  const raw = String(rawText || "").trim();
+  let market = "";
+  let sector = "";
+  let text = raw;
+  const marketMatch = text.match(/(?:^|\s)m(?:arket)?\s*:\s*(US|KR|ALL)(?=\s|$)/i);
+  if (marketMatch) {
+    market = String(marketMatch[1] || "").toUpperCase();
+    text = text.replace(marketMatch[0], " ").trim();
+  }
+  const sectorMatch = text.match(/(?:^|\s)s(?:ector)?\s*:\s*([^\s]+)/i);
+  if (sectorMatch) {
+    sector = String(sectorMatch[1] || "").trim();
+    text = text.replace(sectorMatch[0], " ").trim();
+  }
+  text = text.replace(/\s+/g, " ").trim();
+  return { market, sector, query: text };
+}
+
+function applySpotlightToInputs(rawText) {
+  const parsed = parseSpotlightInput(rawText);
+  if (parsed.market && els.intelMarket) {
+    els.intelMarket.value = parsed.market;
+  }
+  if (parsed.sector && els.sectorSelect) {
+    const options = Array.from(els.sectorSelect.options || []).map((o) => o.value);
+    if (!options.includes(parsed.sector)) {
+      const option = document.createElement("option");
+      option.value = parsed.sector;
+      option.textContent = parsed.sector;
+      els.sectorSelect.appendChild(option);
+    }
+    els.sectorSelect.value = parsed.sector;
+  }
+  if (els.companyQuery && (parsed.query || rawText)) {
+    els.companyQuery.value = parsed.query;
+  }
+  return parsed;
 }
 
 function parseCSV(text) {
@@ -1297,9 +1339,10 @@ function renderNews(data) {
     const dt = escapeHtml(String(item.datetime || item.time || "").slice(0, 16) || "-");
     const senti = classifySentimentFromText(headline);
     const tagClass = senti === "positive" ? "pos" : senti === "negative" ? "neg" : "";
+    const cardClass = senti === "positive" ? "sentiment-positive" : senti === "negative" ? "sentiment-negative" : "sentiment-neutral";
     const tags = extractTags(headline).map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join("");
     const sentiLabel = senti === "positive" ? "긍정" : senti === "negative" ? "부정" : "중립";
-    return `<li>
+    return `<li class="sentiment-card ${cardClass}">
       <a class="intel-link" href="${url}" target="_blank" rel="noopener noreferrer">${title}</a>
       <div class="muted-sm">${src} · ${dt} <span class="tag ${tagClass}">${sentiLabel}</span>${tags}</div>
     </li>`;
@@ -2123,8 +2166,10 @@ async function loadSectorOptions() {
 async function searchCompanyByName() {
   showLoadingOverlay("회사명을 검색하고 데이터를 조회하는 중...");
   try {
+  const spotlightRaw = String(els.spotlightQuery?.value || "").trim();
+  const parsed = applySpotlightToInputs(spotlightRaw);
   const q = String(els.companyQuery.value || "").trim();
-  const market = String(els.intelMarket.value || "US").toUpperCase();
+  const market = String(els.intelMarket.value || parsed.market || "US").toUpperCase();
   const queryHasHangul = hasHangulText(q);
   if (!q) throw new Error("회사 이름을 입력하세요.");
   let items = [];
@@ -2195,6 +2240,25 @@ async function searchCompanyByName() {
   } finally {
     hideLoadingOverlay();
   }
+}
+
+async function submitSpotlightQuery() {
+  const raw = String(els.spotlightQuery?.value || "").trim();
+  const parsed = applySpotlightToInputs(raw);
+  const queryText = String(parsed.query || "").trim();
+  if (!queryText) throw new Error("검색어를 입력하세요.");
+  if (els.intelMeta) {
+    els.intelMeta.textContent = "통합 검색 실행 중...";
+    els.intelMeta.style.background = "#eef2ff";
+    els.intelMeta.style.color = "#334155";
+  }
+  const market = String(els.intelMarket?.value || "US").toUpperCase();
+  if (isLikelyTicker(queryText, market)) {
+    els.intelTicker.value = market === "KR" ? normalizeKRTicker(queryText) : queryText.toUpperCase();
+    await loadIntelligence();
+    return;
+  }
+  await searchCompanyByName();
 }
 
 async function loadStocksBySector(forcedSector = "", options = {}) {
@@ -2547,6 +2611,10 @@ async function loadIntelligence(options = {}) {
     els.intelTicker.value = ticker;
   }
   els.intelMarket.value = market;
+  if (els.spotlightQuery) {
+    const q = String(els.companyQuery?.value || resolved.name || ticker).trim();
+    els.spotlightQuery.value = `${q || ticker} m:${market}`;
+  }
   const displayName = (resolved.name || (await getLocalCompanyNameByTicker(ticker, market)) || rawInput).trim();
 
   els.intelMeta.textContent = `${ticker} (${market}) 조회 중...`;
@@ -2748,6 +2816,30 @@ function bindEvents() {
       });
     });
   }
+  if (els.spotlightSearchBtn) {
+    els.spotlightSearchBtn.addEventListener("click", () => {
+      submitSpotlightQuery().catch((err) => {
+        if (els.intelMeta) {
+          els.intelMeta.textContent = `오류: ${err.message}`;
+          els.intelMeta.style.background = "#fee2e2";
+          els.intelMeta.style.color = "#b91c1c";
+        }
+      });
+    });
+  }
+  if (els.spotlightQuery) {
+    els.spotlightQuery.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      submitSpotlightQuery().catch((err) => {
+        if (els.intelMeta) {
+          els.intelMeta.textContent = `오류: ${err.message}`;
+          els.intelMeta.style.background = "#fee2e2";
+          els.intelMeta.style.color = "#b91c1c";
+        }
+      });
+    });
+  }
   if (els.loadSectorBtn) {
     els.loadSectorBtn.addEventListener("click", () => {
       loadStocksBySector().catch((err) => {
@@ -2795,6 +2887,7 @@ function bindEvents() {
         els.watchTicker.value = ticker;
         if (market) els.watchMarket.value = market;
         if (name) els.companyQuery.value = name;
+        if (name && els.spotlightQuery) els.spotlightQuery.value = `${name}${market ? ` m:${market}` : ""}`;
         if (sector) {
           const options = Array.from(els.sectorSelect.options || []).map((o) => o.value);
           if (!options.includes(sector)) {
@@ -2914,6 +3007,8 @@ function bindEvents() {
       els.prefHorizon.value = "long";
       els.scenarioFx.value = "2";
       els.scenarioEv.value = "0";
+      if (els.scenarioFxText) els.scenarioFxText.textContent = "2.0%";
+      if (els.scenarioEvText) els.scenarioEvText.textContent = "0%";
       assumptionChanged = true;
       markAssumptionChangedUI(true);
       reloadDecision();
@@ -2925,6 +3020,8 @@ function bindEvents() {
       els.prefHorizon.value = "mid";
       els.scenarioFx.value = "0";
       els.scenarioEv.value = "5";
+      if (els.scenarioFxText) els.scenarioFxText.textContent = "0.0%";
+      if (els.scenarioEvText) els.scenarioEvText.textContent = "5%";
       assumptionChanged = false;
       markAssumptionChangedUI(false);
       reloadDecision();
@@ -2936,6 +3033,8 @@ function bindEvents() {
       els.prefHorizon.value = "short";
       els.scenarioFx.value = "-2";
       els.scenarioEv.value = "15";
+      if (els.scenarioFxText) els.scenarioFxText.textContent = "-2.0%";
+      if (els.scenarioEvText) els.scenarioEvText.textContent = "15%";
       assumptionChanged = true;
       markAssumptionChangedUI(true);
       reloadDecision();
@@ -3208,6 +3307,9 @@ function init() {
     loadSectorOptions().catch(() => {
       // no-op
     });
+  }
+  if (els.spotlightQuery && !els.spotlightQuery.value) {
+    els.spotlightQuery.value = "AAPL m:US";
   }
   if (els.userId || els.watchlistView || els.autoMeta) {
     refreshAutoPanel().catch(() => {

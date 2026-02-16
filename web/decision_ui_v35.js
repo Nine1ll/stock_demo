@@ -56,6 +56,12 @@
     return "하락 우세";
   }
 
+  function verdictLabelByHype(overheatScore) {
+    if (overheatScore >= 67) return { key: "sell", text: "Sell" };
+    if (overheatScore >= 40) return { key: "neutral", text: "Neutral" };
+    return { key: "buy", text: "Buy" };
+  }
+
   function horizonModel(horizon, snap, risk, opts = {}) {
     const v = safeNum(snap.valuation, 50);
     const q = safeNum(snap.quality, 50);
@@ -218,6 +224,9 @@
     const chipHtml = executionChips.map((x) => `<span class="tag action-chip">${esc(x)}</span>`).join("");
     const heatScore = safeNum(sectorHeat.heat_score, 0).toFixed(1);
     const resilienceScore = safeNum(sectorHeat.resilience_score, 0).toFixed(1);
+    const overheatScore = clamp(safeNum(snap.hype, 0), 0, 100);
+    const verdict = verdictLabelByHype(overheatScore);
+    const needleDeg = ((overheatScore / 100) * 180 - 90).toFixed(1);
     const heatText = sectorHeat.label
       ? ` | 섹터열기 ${heatScore} · 체력 ${resilienceScore} (${esc(sectorHeat.label)})`
       : "";
@@ -227,6 +236,20 @@
 
     el.innerHTML = `
       <div class="panel-head"><h3>Decision Panel</h3><div>${assumptionChip(opts)}<span class="chip">개인화 반영</span></div></div>
+      <section class="verdict-hero">
+        <div class="verdict-meta">
+          <strong>Verdict Card</strong>
+          <span class="muted-sm">Overheat Score Gauge</span>
+        </div>
+        <div class="verdict-gauge-wrap">
+          <div class="verdict-gauge" role="img" aria-label="Overheat score ${overheatScore.toFixed(1)}, verdict ${verdict.text}"></div>
+          <div class="verdict-needle" style="transform: translateX(-50%) rotate(${needleDeg}deg)"></div>
+        </div>
+        <div class="verdict-center">
+          <div class="verdict-score">${overheatScore.toFixed(1)}</div>
+          <span class="verdict-label ${verdict.key}">${verdict.text}</span>
+        </div>
+      </section>
       <div class="risk-breakdown" style="margin-bottom:8px;">
         종합 ${safeNum(snap.composite, 0).toFixed(1)}점 | 밸류 ${safeNum(snap.valuation, 0).toFixed(1)} · 기술력 ${safeNum(snap.tech_strength, 0).toFixed(1)} · 자본력 ${safeNum(snap.capital_power, 0).toFixed(1)} · 시장영향 ${safeNum(snap.market_impact, 0).toFixed(1)} · 품질 ${safeNum(snap.quality, 0).toFixed(1)} · 과열 ${safeNum(snap.hype, 0).toFixed(1)}${heatText}
       </div>
