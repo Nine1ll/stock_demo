@@ -2186,7 +2186,12 @@ async function searchCompanyByName() {
   if (!q) throw new Error("회사 이름을 입력하세요.");
   let items = [];
   let usedFallback = false;
-  const lookupOrder = queryHasHangul ? ["KR", "ALL", market] : [market, "ALL"];
+  let lookupOrder = [market, "ALL"];
+  if (queryHasHangul) {
+    if (market === "US") lookupOrder = ["US", "ALL", "KR"];
+    else if (market === "KR") lookupOrder = ["KR", "ALL", "US"];
+    else lookupOrder = ["KR", "US", "ALL"];
+  }
   for (const lookupMarket of lookupOrder) {
     if (items.length) break;
     try {
@@ -2207,11 +2212,12 @@ async function searchCompanyByName() {
     const watchlistItems = await lookupCompanyFromWatchlist(q, market);
     if (watchlistItems.length) items = watchlistItems;
   }
-  if (queryHasHangul) {
+  if (queryHasHangul && market !== "US") {
     const krItems = items.filter((x) => String(x.market || "").toUpperCase() === "KR");
     if (krItems.length) items = krItems;
   }
-  items = sortCompanyItems(items, queryHasHangul ? "KR" : market);
+  const preferredMarket = queryHasHangul && market !== "US" ? "KR" : market;
+  items = sortCompanyItems(items, preferredMarket);
   renderRelatedStocks(items, "검색 결과 없음");
   const first = items[0];
   const bestSector = String(pickBestSectorFromItems(items, first?.name || q) || "").trim();

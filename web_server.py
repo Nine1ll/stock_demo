@@ -95,6 +95,8 @@ LOOKUP_SOURCE_PRIORITY = {
 }
 GLOBAL_COMPANY_ALIASES: List[Dict[str, str]] = [
     # US
+    {"market": "US", "ticker": "GOOGL", "name": "Alphabet Inc. Class A", "sector": "AI", "aliases": "alphabet google 알파벳 구글 알파벳a 알파벳a주"},
+    {"market": "US", "ticker": "GOOG", "name": "Alphabet Inc. Class C", "sector": "AI", "aliases": "alphabet google 알파벳 구글 알파벳c 알파벳c주"},
     {"market": "US", "ticker": "MU", "name": "Micron Technology", "sector": "반도체", "aliases": "micron 마이크론"},
     {"market": "US", "ticker": "QCOM", "name": "Qualcomm", "sector": "반도체", "aliases": "qualcomm 퀄컴"},
     {"market": "US", "ticker": "INTC", "name": "Intel", "sector": "반도체", "aliases": "intel 인텔"},
@@ -3424,6 +3426,7 @@ def lookup_company_us_alias(query: str, limit: int = 20) -> List[Dict[str, Any]]
         ("TSLA", "Tesla Inc.", ["tesla", "테슬라"]),
         ("AMZN", "Amazon.com Inc.", ["amazon", "아마존"]),
         ("GOOGL", "Alphabet Inc.", ["google", "alphabet", "구글", "알파벳"]),
+        ("GOOG", "Alphabet Inc. Class C", ["google", "alphabet", "구글", "알파벳", "알파벳c"]),
         ("META", "Meta Platforms", ["meta", "facebook", "페이스북", "메타"]),
         ("NFLX", "Netflix", ["netflix", "넷플릭스"]),
         ("AMD", "Advanced Micro Devices", ["amd"]),
