@@ -712,7 +712,7 @@ def fetch_fundamentals_naver(ticker: str, market: str) -> Dict[str, Any]:
     }
 
 
-def fetch_news_naver_finance(ticker: str, market: str) -> Dict[str, Any]:
+def fetch_news_naver_finance(ticker: str, market: str, max_items: int = 15) -> Dict[str, Any]:
     if market != "KR":
         return provider_error("naver_finance_news", "Naver finance news is for KR market only")
     code = normalize_kr_ticker(ticker)
@@ -731,7 +731,8 @@ def fetch_news_naver_finance(ticker: str, market: str) -> Dict[str, Any]:
         flags=re.IGNORECASE | re.DOTALL,
     )
     items = []
-    for href, title_html, date_txt in rows[:15]:
+    lim = max(1, min(int(max_items), 100))
+    for href, title_html, date_txt in rows[:lim]:
         title = re.sub(r"<[^>]+>", "", title_html).strip()
         items.append(
             {
@@ -1566,7 +1567,7 @@ def get_fundamentals(ticker: str, market: str = "US") -> Dict[str, Any]:
     return cache_get_or_set(f"fundamentals:{m}:{t}", 3600, producer)
 
 
-def fetch_news_google_rss(ticker: str, market: str) -> Dict[str, Any]:
+def fetch_news_google_rss(ticker: str, market: str, max_items: int = 15) -> Dict[str, Any]:
     company = resolve_company_name(ticker, market)
     queries: List[str] = []
     if market == "US":
@@ -1585,6 +1586,7 @@ def fetch_news_google_rss(ticker: str, market: str) -> Dict[str, Any]:
         seen_q.add(k)
         deduped.append(q)
 
+    lim = max(1, min(int(max_items), 100))
     items = []
     seen = set()
     for query_text in deduped:
@@ -1613,14 +1615,14 @@ def fetch_news_google_rss(ticker: str, market: str) -> Dict[str, Any]:
                     "datetime": item.findtext("pubDate", default=""),
                 }
             )
-            if len(items) >= 15:
+            if len(items) >= lim:
                 break
-        if len(items) >= 15:
+        if len(items) >= lim:
             break
     return {"ok": True, "source": "google_news_rss", "ticker": ticker, "market": market, "count": len(items), "items": items}
 
 
-def fetch_news_finnhub(ticker: str, market: str, days: int) -> Dict[str, Any]:
+def fetch_news_finnhub(ticker: str, market: str, days: int, max_items: int = 15) -> Dict[str, Any]:
     if market != "US":
         return provider_error("finnhub", "Finnhub news is currently configured for US market only")
     key = os.getenv("FINNHUB_API_KEY", "").strip()
@@ -1637,8 +1639,9 @@ def fetch_news_finnhub(ticker: str, market: str, days: int) -> Dict[str, Any]:
         items = http_get_json(url, timeout=15)
     except Exception as exc:
         return provider_error("finnhub", str(exc))
+    lim = max(1, min(int(max_items), 100))
     out = []
-    for item in (items or [])[:15]:
+    for item in (items or [])[:lim]:
         out.append(
             {
                 "headline": item.get("headline"),
@@ -1651,23 +1654,24 @@ def fetch_news_finnhub(ticker: str, market: str, days: int) -> Dict[str, Any]:
     return {"ok": True, "source": "finnhub", "ticker": ticker, "count": len(out), "items": out}
 
 
-def fetch_news_alpha(ticker: str, market: str) -> Dict[str, Any]:
+def fetch_news_alpha(ticker: str, market: str, max_items: int = 15) -> Dict[str, Any]:
     if market != "US":
         return provider_error("alpha_vantage", "Alpha Vantage news is currently configured for US market only")
     key = os.getenv("ALPHA_VANTAGE_API_KEY", "").strip()
     if not key:
         return provider_error("alpha_vantage", "ALPHA_VANTAGE_API_KEY is not set")
+    lim = max(1, min(int(max_items), 100))
     try:
         url = (
             "https://www.alphavantage.co/query?function=NEWS_SENTIMENT"
-            f"&tickers={urllib.parse.quote(ticker)}&limit=15&apikey={urllib.parse.quote(key)}"
+            f"&tickers={urllib.parse.quote(ticker)}&limit={lim}&apikey={urllib.parse.quote(key)}"
         )
         data = http_get_json(url, timeout=20)
     except Exception as exc:
         return provider_error("alpha_vantage", str(exc))
     feed = data.get("feed", []) if isinstance(data, dict) else []
     out = []
-    for item in feed[:15]:
+    for item in feed[:lim]:
         out.append(
             {
                 "headline": item.get("title"),
@@ -1680,23 +1684,24 @@ def fetch_news_alpha(ticker: str, market: str) -> Dict[str, Any]:
     return {"ok": True, "source": "alpha_vantage", "ticker": ticker, "count": len(out), "items": out}
 
 
-def get_news(ticker: str, market: str = "US", days: int = 7) -> Dict[str, Any]:
+def get_news(ticker: str, market: str = "US", days: int = 7, limit: int = 15) -> Dict[str, Any]:
     t = canonicalize_input_ticker(ticker, market)
     m = clean_market(market)
     d = max(1, min(int(days), 30))
+    lim = max(1, min(int(limit), 100))
 
     def producer() -> Dict[str, Any]:
         tried = []
         if m == "KR":
             providers = (
-                lambda: fetch_news_naver_finance(t, m),
-                lambda: fetch_news_google_rss(t, m),
+                lambda: fetch_news_naver_finance(t, m, max_items=lim),
+                lambda: fetch_news_google_rss(t, m, max_items=lim),
             )
         else:
             providers = (
-                lambda: fetch_news_finnhub(t, m, d),
-                lambda: fetch_news_alpha(t, m),
-                lambda: fetch_news_google_rss(t, m),
+                lambda: fetch_news_finnhub(t, m, d, max_items=lim),
+                lambda: fetch_news_alpha(t, m, max_items=lim),
+                lambda: fetch_news_google_rss(t, m, max_items=lim),
             )
         for provider in providers:
             out = provider()
@@ -1710,7 +1715,7 @@ def get_news(ticker: str, market: str = "US", days: int = 7) -> Dict[str, Any]:
             tried.append({"source": out.get("source", "unknown"), "status": "fail", "error": err})
         return {"ok": False, "error": "All news providers failed", "providers_tried": tried}
 
-    return cache_get_or_set(f"news:{m}:{t}:{d}", 900, producer)
+    return cache_get_or_set(f"news:{m}:{t}:{d}:{lim}", 900, producer)
 
 
 def get_sec_ticker_mapping() -> Dict[str, str]:
@@ -4103,7 +4108,8 @@ class AppHandler(SimpleHTTPRequestHandler):
                     return json_response(self, HTTPStatus.OK, get_fundamentals(ticker, market=market) if ticker else {"ok": False, "error": "ticker is required"})
                 if parsed.path == "/api/news":
                     days = int((qs.get("days") or ["7"])[0])
-                    return json_response(self, HTTPStatus.OK, get_news(ticker, market=market, days=days) if ticker else {"ok": False, "error": "ticker is required"})
+                    limit = int((qs.get("limit") or ["15"])[0])
+                    return json_response(self, HTTPStatus.OK, get_news(ticker, market=market, days=days, limit=limit) if ticker else {"ok": False, "error": "ticker is required"})
                 if parsed.path == "/api/filings":
                     limit = int((qs.get("limit") or ["10"])[0])
                     return json_response(self, HTTPStatus.OK, get_sec_filings(ticker, market=market, limit=limit) if ticker else {"ok": False, "error": "ticker is required"})

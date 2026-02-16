@@ -129,6 +129,7 @@ const els = {
   scenarioAnalyzerCard: document.getElementById("scenarioAnalyzerCard"),
   prefHorizon: document.getElementById("prefHorizon"),
   prefRisk: document.getElementById("prefRisk"),
+  feedIntensity: document.getElementById("feedIntensity"),
   scenarioFx: document.getElementById("scenarioFx"),
   scenarioEv: document.getElementById("scenarioEv"),
   scenarioFxText: document.getElementById("scenarioFxText"),
@@ -238,6 +239,12 @@ const sectorStocksCache = new Map();
 const compareDataCache = new Map();
 const peerQuoteCache = new Map();
 
+const FEED_INTENSITY_CONFIG = {
+  light: { newsDays: 5, newsLimit: 15, filingLimit: 10, techLimit: 8 },
+  standard: { newsDays: 7, newsLimit: 30, filingLimit: 20, techLimit: 16 },
+  deep: { newsDays: 14, newsLimit: 60, filingLimit: 40, techLimit: 32 },
+};
+
 function normalize(value) {
   return (value || "").trim().toLowerCase();
 }
@@ -249,6 +256,16 @@ function parseFloatSafe(value, defaultValue = 0) {
   if (!text) return defaultValue;
   const n = Number.parseFloat(text);
   return Number.isFinite(n) ? n : defaultValue;
+}
+
+function getFeedIntensity() {
+  const raw = String(els.feedIntensity?.value || "standard").trim().toLowerCase();
+  if (raw === "light" || raw === "deep" || raw === "standard") return raw;
+  return "standard";
+}
+
+function getFeedConfig() {
+  return FEED_INTENSITY_CONFIG[getFeedIntensity()] || FEED_INTENSITY_CONFIG.standard;
 }
 
 function parseSpotlightInput(rawText) {
@@ -1565,7 +1582,8 @@ function clipText(text, maxLen = 38) {
 }
 
 async function fetchCompareTabData(item, tab) {
-  const key = `${compareItemKey(item)}:${tab}`;
+  const intensity = getFeedIntensity();
+  const key = `${compareItemKey(item)}:${tab}:${intensity}`;
   const now = Date.now();
   const hit = compareDataCache.get(key);
   if (hit && hit.expireAt > now) return hit.value;
@@ -1588,10 +1606,11 @@ async function fetchCompareTabData(item, tab) {
     ]);
     data = { fund, decision, backtest };
   } else {
+    const feed = getFeedConfig();
     const [news, filings, tech] = await Promise.all([
-      fetchApi(`/api/news?ticker=${ticker}&market=${market}&days=7`),
-      fetchApi(`/api/filings?ticker=${ticker}&market=${market}&limit=10`),
-      fetchApi(`/api/technology?query=${encodeURIComponent(item.name || item.ticker)}&limit=8`),
+      fetchApi(`/api/news?ticker=${ticker}&market=${market}&days=${feed.newsDays}&limit=${feed.newsLimit}`),
+      fetchApi(`/api/filings?ticker=${ticker}&market=${market}&limit=${feed.filingLimit}`),
+      fetchApi(`/api/technology?query=${encodeURIComponent(item.name || item.ticker)}&limit=${feed.techLimit}`),
     ]);
     data = { news, filings, tech };
   }
@@ -1662,12 +1681,16 @@ async function renderSectorComparePanel(tab = currentCompareTab) {
       });
       table = renderCompareTable(headers, rows);
     } else {
-      const headers = ["종목", "뉴스(7일)", "최근 헤드라인", "공시(10건)", "최근 공시", "기술자료", "피드 강도"];
+      const feedCfg = getFeedConfig();
+      const headers = [`종목`, `뉴스(${feedCfg.newsDays}일)`, "최근 헤드라인", `공시(${feedCfg.filingLimit}건)`, "최근 공시", `기술자료(${feedCfg.techLimit})`, "피드 강도"];
       const rows = compareSelection.map((it, idx) => {
         const n = dataset[idx].news || {};
         const f = dataset[idx].filings || {};
         const t = dataset[idx].tech || {};
-        const feed = (Number(n.count || 0) * 1.2) + (Number(f.count || 0) * 0.9) + (Number(t.count || 0) * 1.1);
+        const newsRatio = Math.min(1, Number(n.count || 0) / Math.max(1, feedCfg.newsLimit));
+        const filingRatio = Math.min(1, Number(f.count || 0) / Math.max(1, feedCfg.filingLimit));
+        const techRatio = Math.min(1, Number(t.count || 0) / Math.max(1, feedCfg.techLimit));
+        const feed = ((newsRatio * 1.2) + (filingRatio * 0.9) + (techRatio * 1.1)) * 100;
         const topNews = clipText((n.items || [])[0]?.headline || (n.items || [])[0]?.title || "-", 34);
         const topFiling = clipText((f.items || [])[0]?.form || (f.items || [])[0]?.title || "-", 26);
         return [
@@ -1677,7 +1700,7 @@ async function renderSectorComparePanel(tab = currentCompareTab) {
           String(f.count || 0),
           topFiling,
           String(t.count || 0),
-          feed.toFixed(1),
+          `${feed.toFixed(1)} / 100`,
         ];
       });
       table = renderCompareTable(headers, rows);
@@ -2655,6 +2678,7 @@ async function loadIntelligence(options = {}) {
   const encodedTicker = encodeURIComponent(ticker);
   const encodedMarket = encodeURIComponent(market);
   const encodedQuery = encodeURIComponent(techQuery || resolved.name || rawInput);
+  const feedCfg = getFeedConfig();
   newsExpanded = false;
   filingExpanded = false;
   techExpanded = false;
@@ -2665,9 +2689,9 @@ async function loadIntelligence(options = {}) {
   const [quoteRes, fundamentalsRes, newsRes, filingsRes, technologyRes, historyRes] = await Promise.allSettled([
     fetchApi(`/api/quote?ticker=${encodedTicker}&market=${encodedMarket}`),
     fetchApi(`/api/fundamentals?ticker=${encodedTicker}&market=${encodedMarket}`),
-    fetchApi(`/api/news?ticker=${encodedTicker}&market=${encodedMarket}&days=7`),
-    fetchApi(`/api/filings?ticker=${encodedTicker}&market=${encodedMarket}&limit=10`),
-    fetchApi(`/api/technology?query=${encodedQuery}&limit=8`),
+    fetchApi(`/api/news?ticker=${encodedTicker}&market=${encodedMarket}&days=${feedCfg.newsDays}&limit=${feedCfg.newsLimit}`),
+    fetchApi(`/api/filings?ticker=${encodedTicker}&market=${encodedMarket}&limit=${feedCfg.filingLimit}`),
+    fetchApi(`/api/technology?query=${encodedQuery}&limit=${feedCfg.techLimit}`),
     fetchApi(`/api/price-history?ticker=${encodedTicker}&market=${encodedMarket}&period=3mo`),
   ]);
   const quoteData =
@@ -3015,6 +3039,15 @@ function bindEvents() {
   };
   if (els.prefHorizon) els.prefHorizon.addEventListener("change", reloadDecision);
   if (els.prefRisk) els.prefRisk.addEventListener("change", reloadDecision);
+  if (els.feedIntensity) {
+    els.feedIntensity.addEventListener("change", () => {
+      compareDataCache.clear();
+      if (!latestDecisionTicker) return;
+      loadIntelligence({ showOverlay: false }).catch(() => {
+        // no-op
+      });
+    });
+  }
   if (els.scenarioFx) {
     els.scenarioFx.addEventListener("input", () => {
       if (els.scenarioFxText) els.scenarioFxText.textContent = `${Number.parseFloat(String(els.scenarioFx.value || "0")).toFixed(1)}%`;
