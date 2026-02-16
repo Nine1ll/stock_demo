@@ -56,10 +56,15 @@
     return "하락 우세";
   }
 
-  function verdictLabelByHype(overheatScore) {
-    if (overheatScore >= 67) return { key: "sell", text: "Sell" };
-    if (overheatScore >= 40) return { key: "neutral", text: "Neutral" };
-    return { key: "buy", text: "Buy" };
+  function verdictFromActionStance(stance) {
+    const s = String(stance || "").trim();
+    if (s.includes("매수") || s.toLowerCase().includes("buy")) {
+      return { key: "buy", text: "매수", tone: "Buy" };
+    }
+    if (s.includes("비중축소") || s.includes("매도") || s.toLowerCase().includes("sell")) {
+      return { key: "sell", text: "비중축소", tone: "Reduce" };
+    }
+    return { key: "neutral", text: "관망", tone: "Neutral" };
   }
 
   function horizonModel(horizon, snap, risk, opts = {}) {
@@ -225,7 +230,7 @@
     const heatScore = safeNum(sectorHeat.heat_score, 0).toFixed(1);
     const resilienceScore = safeNum(sectorHeat.resilience_score, 0).toFixed(1);
     const overheatScore = clamp(safeNum(snap.hype, 0), 0, 100);
-    const verdict = verdictLabelByHype(overheatScore);
+    const verdict = verdictFromActionStance(action.stance || "");
     const needleDeg = ((overheatScore / 100) * 180 - 90).toFixed(1);
     const heatText = sectorHeat.label
       ? ` | 섹터열기 ${heatScore} · 체력 ${resilienceScore} (${esc(sectorHeat.label)})`
@@ -238,16 +243,20 @@
       <div class="panel-head"><h3>Decision Panel</h3><div>${assumptionChip(opts)}<span class="chip">개인화 반영</span></div></div>
       <section class="verdict-hero">
         <div class="verdict-meta">
-          <strong>Verdict Card</strong>
-          <span class="muted-sm">Overheat Score Gauge</span>
+          <strong>Final Verdict</strong>
+          <span class="muted-sm">행동 제안 기준</span>
+        </div>
+        <div class="muted-sm" style="margin-bottom:8px;">최종 판단은 종합점수·리스크·밸류 기준으로 계산되며, 과열 점수는 보조지표로 제공됩니다.</div>
+        <div class="verdict-center" style="margin:2px 0 8px;">
+          <span class="verdict-label ${verdict.key}">${verdict.text} (${verdict.tone})</span>
         </div>
         <div class="verdict-gauge-wrap">
-          <div class="verdict-gauge" role="img" aria-label="Overheat score ${overheatScore.toFixed(1)}, verdict ${verdict.text}"></div>
+          <div class="verdict-gauge" role="img" aria-label="Overheat score ${overheatScore.toFixed(1)}"></div>
           <div class="verdict-needle" style="transform: translateX(-50%) rotate(${needleDeg}deg)"></div>
         </div>
         <div class="verdict-center">
           <div class="verdict-score">${overheatScore.toFixed(1)}</div>
-          <span class="verdict-label ${verdict.key}">${verdict.text}</span>
+          <span class="muted-sm">Overheat Gauge</span>
         </div>
       </section>
       <div class="risk-breakdown" style="margin-bottom:8px;">
