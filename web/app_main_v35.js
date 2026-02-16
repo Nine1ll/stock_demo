@@ -111,13 +111,6 @@ const els = {
   navAutoBtn: document.getElementById("navAutoBtn"),
   intelPage: document.getElementById("intelPage"),
   autoPage: document.getElementById("autoPage"),
-  heroAnalyzeBtn: document.getElementById("heroAnalyzeBtn"),
-  onboardingWizard: document.getElementById("onboardingWizard"),
-  wizardProgressBar: document.getElementById("wizardProgressBar"),
-  wizardStepStyle: document.getElementById("wizardStepStyle"),
-  wizardStepRisk: document.getElementById("wizardStepRisk"),
-  wizardBackBtn: document.getElementById("wizardBackBtn"),
-  wizardSkipBtn: document.getElementById("wizardSkipBtn"),
   csvFile: document.getElementById("csvFile"),
   csvText: document.getElementById("csvText"),
   analyzeBtn: document.getElementById("analyzeBtn"),
@@ -244,8 +237,6 @@ let compareSelection = [];
 const sectorStocksCache = new Map();
 const compareDataCache = new Map();
 const peerQuoteCache = new Map();
-const ONBOARDING_KEY = "stock_onboarding_v1";
-let wizardState = { step: 1, horizon: "", risk: "" };
 
 function normalize(value) {
   return (value || "").trim().toLowerCase();
@@ -2100,7 +2091,10 @@ function isLikelyTicker(input, market) {
   const raw = String(input || "").trim();
   if (!raw) return false;
   if (market === "KR") return /^[0-9]{4,6}$/.test(raw);
-  return /^[A-Za-z][A-Za-z0-9.\-]{0,9}$/.test(raw);
+  // US ticker heuristic:
+  // - Typical symbols are <= 5 chars (e.g., AAPL, GOOGL, TSLA)
+  // - Allow class suffix style (e.g., BRK.B, BRK-B)
+  return /^[A-Za-z]{1,5}([.\-][A-Za-z0-9]{1,4})?$/.test(raw);
 }
 
 async function resolveTickerInput(rawInput, market) {
@@ -2137,6 +2131,25 @@ async function resolveTickerInput(rawInput, market) {
   }
   if (isLikelyTicker(raw, market)) {
     return { ticker: market === "KR" ? normalizeKRTicker(raw) : raw.toUpperCase(), name: "", market };
+  }
+  // For name-like US text (e.g., GOOGLE), try lookup first instead of forcing ticker.
+  const looksNameLikeUs = market === "US" && /^[A-Za-z][A-Za-z\s]{4,}$/.test(raw);
+  if (looksNameLikeUs) {
+    try {
+      const res = await fetchApi(
+        `/api/company-lookup?query=${encodeURIComponent(raw)}&market=US&limit=1`
+      );
+      const first = (res.items || [])[0];
+      if (first?.ticker) {
+        return {
+          ticker: String(first.ticker).toUpperCase(),
+          name: String(first.name || ""),
+          market: "US",
+        };
+      }
+    } catch (_err) {
+      // fallback below
+    }
   }
   try {
     const res = await fetchApi(
@@ -2737,50 +2750,6 @@ function resetMeta() {
   els.resultMeta.style.color = "#2f4d7a";
 }
 
-function renderWizardStep() {
-  if (!els.wizardStepStyle || !els.wizardStepRisk || !els.wizardProgressBar || !els.wizardBackBtn) return;
-  const isStyle = wizardState.step === 1;
-  els.wizardStepStyle.classList.toggle("hidden", !isStyle);
-  els.wizardStepRisk.classList.toggle("hidden", isStyle);
-  els.wizardProgressBar.classList.toggle("w-1/2", isStyle);
-  els.wizardProgressBar.classList.toggle("w-full", !isStyle);
-  els.wizardBackBtn.style.visibility = isStyle ? "hidden" : "visible";
-}
-
-function closeOnboardingWizard(markDone = true) {
-  if (els.onboardingWizard) {
-    els.onboardingWizard.classList.add("hidden");
-    els.onboardingWizard.setAttribute("aria-hidden", "true");
-  }
-  document.body.style.overflow = "";
-  if (markDone) localStorage.setItem(ONBOARDING_KEY, "done");
-}
-
-function openOnboardingWizard() {
-  if (!els.onboardingWizard) return;
-  wizardState = { step: 1, horizon: "", risk: "" };
-  renderWizardStep();
-  els.onboardingWizard.classList.remove("hidden");
-  els.onboardingWizard.classList.add("flex");
-  els.onboardingWizard.setAttribute("aria-hidden", "false");
-  document.body.style.overflow = "hidden";
-}
-
-function applyWizardPreferences() {
-  if (wizardState.horizon && els.prefHorizon) {
-    if (wizardState.horizon === "short") els.prefHorizon.value = "short";
-    if (wizardState.horizon === "long") els.prefHorizon.value = "long";
-  }
-  if (wizardState.risk && els.prefRisk) {
-    els.prefRisk.value = wizardState.risk;
-  }
-  if (latestDecisionTicker) {
-    loadDecisionIntelPanel(latestDecisionTicker, latestDecisionMarket).catch(() => {
-      // no-op
-    });
-  }
-}
-
 function bindEvents() {
   if (els.csvFile) {
     els.csvFile.addEventListener("change", (ev) => {
@@ -2790,41 +2759,6 @@ function bindEvents() {
   if (els.loadSampleBtn) {
     els.loadSampleBtn.addEventListener("click", () => {
       loadSample().then(resetMeta).catch((err) => showError(err.message));
-    });
-  }
-  if (els.heroAnalyzeBtn) {
-    els.heroAnalyzeBtn.addEventListener("click", () => {
-      openOnboardingWizard();
-      els.onboardingWizard?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-  }
-  if (els.wizardBackBtn) {
-    els.wizardBackBtn.addEventListener("click", () => {
-      wizardState.step = 1;
-      renderWizardStep();
-    });
-  }
-  if (els.wizardSkipBtn) {
-    els.wizardSkipBtn.addEventListener("click", () => closeOnboardingWizard(true));
-  }
-  if (els.onboardingWizard) {
-    els.onboardingWizard.addEventListener("click", (ev) => {
-      const target = ev.target;
-      if (!(target instanceof HTMLElement)) return;
-      if (target === els.onboardingWizard) closeOnboardingWizard(false);
-      const horizon = target.closest("[data-wizard-horizon]")?.getAttribute("data-wizard-horizon");
-      if (horizon) {
-        wizardState.horizon = horizon;
-        wizardState.step = 2;
-        renderWizardStep();
-        return;
-      }
-      const risk = target.closest("[data-wizard-risk]")?.getAttribute("data-wizard-risk");
-      if (risk) {
-        wizardState.risk = risk;
-        applyWizardPreferences();
-        closeOnboardingWizard(true);
-      }
     });
   }
   if (els.analyzeBtn && els.csvText) {
@@ -3412,9 +3346,6 @@ function init() {
     refreshAutoPanel().catch(() => {
       // no-op
     });
-  }
-  if (els.onboardingWizard && localStorage.getItem(ONBOARDING_KEY) !== "done") {
-    setTimeout(() => openOnboardingWizard(), 220);
   }
   if (typeof window !== "undefined" && window.__stockBoot) {
     window.__stockBoot.appInitDone = true;

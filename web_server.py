@@ -246,6 +246,31 @@ def normalize_kr_ticker(ticker: str) -> str:
     return raw.zfill(6) if raw else ""
 
 
+def canonicalize_input_ticker(ticker: str, market: str) -> str:
+    t = clean_ticker(ticker)
+    m = clean_market(market)
+    if not t:
+        return ""
+    if m == "KR":
+        return normalize_kr_ticker(t)
+    key = normalize_search_key(t)
+    us_alias_map = {
+        "google": "GOOGL",
+        "구글": "GOOGL",
+        "alphabet": "GOOGL",
+        "알파벳": "GOOGL",
+        "alphabeta": "GOOGL",
+        "알파벳a": "GOOGL",
+        "googlea": "GOOGL",
+        "alphabetc": "GOOG",
+        "알파벳c": "GOOG",
+        "googlec": "GOOG",
+        "micron": "MU",
+        "qualcomm": "QCOM",
+    }
+    return us_alias_map.get(key, t)
+
+
 def state_key_for_market(market: str, key: str) -> str:
     return f"{market}:{key}"
 
@@ -1318,16 +1343,19 @@ def fetch_quote_yahoo(ticker: str, market: str) -> Dict[str, Any]:
 
 
 def get_quote(ticker: str, market: str = "US") -> Dict[str, Any]:
+    t = canonicalize_input_ticker(ticker, market)
+    m = clean_market(market)
+
     def producer() -> Dict[str, Any]:
         tried: List[Dict[str, str]] = []
-        providers = (fetch_quote_naver, fetch_quote_yahoo) if market == "KR" else (fetch_quote_finnhub, fetch_quote_yahoo)
+        providers = (fetch_quote_naver, fetch_quote_yahoo) if m == "KR" else (fetch_quote_finnhub, fetch_quote_yahoo)
         for provider in providers:
-            out = provider(ticker, market)
+            out = provider(t, m)
             if out.get("ok"):
                 out["providers_tried"] = tried + [{"source": out.get("source", "unknown"), "status": "ok"}]
-                out["market"] = market
+                out["market"] = m
                 if not str(out.get("name") or "").strip():
-                    out["name"] = resolve_company_name(ticker, market)
+                    out["name"] = resolve_company_name(t, m)
                 cur = to_float_or_none(out.get("current_price"))
                 prev = to_float_or_none(out.get("previous_close"))
                 if cur is not None and prev not in (None, 0):
@@ -1335,9 +1363,9 @@ def get_quote(ticker: str, market: str = "US") -> Dict[str, Any]:
                     out["percent_change"] = round(((cur - prev) / prev) * 100.0, 4)
                 return out
             tried.append({"source": out.get("source", "unknown"), "status": "fail", "error": out.get("error", "")})
-        return {"ok": False, "error": "All quote providers failed", "providers_tried": tried}
+        return {"ok": False, "error": "All quote providers failed", "providers_tried": tried, "ticker": t, "market": m}
 
-    return cache_get_or_set(f"quote:{market}:{ticker}", 20, producer)
+    return cache_get_or_set(f"quote:{m}:{t}", 20, producer)
 
 
 def fetch_price_history_yahoo(ticker: str, market: str, period: str = "3mo", interval: str = "1d") -> Dict[str, Any]:
@@ -1400,15 +1428,17 @@ def fetch_price_history_yahoo(ticker: str, market: str, period: str = "3mo", int
 
 
 def get_price_history(ticker: str, market: str = "US", period: str = "3mo") -> Dict[str, Any]:
+    t = canonicalize_input_ticker(ticker, market)
+    m = clean_market(market)
     p = period if period in {"1mo", "3mo"} else "3mo"
 
     def producer() -> Dict[str, Any]:
-        out = fetch_price_history_yahoo(ticker, market, period=p, interval="1d")
+        out = fetch_price_history_yahoo(t, m, period=p, interval="1d")
         if out.get("ok"):
             return out
         return {"ok": False, "error": "Price history provider failed", "providers_tried": [out]}
 
-    return cache_get_or_set(f"history:{market}:{ticker}:{p}", 600, producer)
+    return cache_get_or_set(f"history:{m}:{t}:{p}", 600, producer)
 
 
 def nested_value(obj: Dict[str, Any], *keys: str) -> Any:
@@ -1486,19 +1516,22 @@ def fetch_fundamentals_yahoo(ticker: str, market: str) -> Dict[str, Any]:
 
 
 def get_fundamentals(ticker: str, market: str = "US") -> Dict[str, Any]:
+    t = canonicalize_input_ticker(ticker, market)
+    m = clean_market(market)
+
     def producer() -> Dict[str, Any]:
         tried: List[Dict[str, str]] = []
-        providers = (fetch_fundamentals_naver, fetch_fundamentals_yahoo) if market == "KR" else (fetch_fundamentals_alpha, fetch_fundamentals_yahoo)
+        providers = (fetch_fundamentals_naver, fetch_fundamentals_yahoo) if m == "KR" else (fetch_fundamentals_alpha, fetch_fundamentals_yahoo)
         for provider in providers:
-            out = provider(ticker, market)
+            out = provider(t, m)
             if out.get("ok"):
                 out["providers_tried"] = tried + [{"source": out.get("source", "unknown"), "status": "ok"}]
-                out["market"] = market
+                out["market"] = m
                 if not str(out.get("name") or "").strip():
-                    out["name"] = resolve_company_name(ticker, market)
-                if market == "KR":
+                    out["name"] = resolve_company_name(t, m)
+                if m == "KR":
                     # KR: always try Yahoo as secondary source because Naver often omits sector/industry/ROE.
-                    y = fetch_fundamentals_yahoo(ticker, market)
+                    y = fetch_fundamentals_yahoo(t, m)
                     if y.get("ok"):
                         for k in ["market_cap", "pe_ratio", "pb_ratio", "roe", "operating_margin_ttm"]:
                             if str(y.get(k) or "").strip():
@@ -1508,29 +1541,29 @@ def get_fundamentals(ticker: str, market: str = "US") -> Dict[str, Any]:
                         if not str(out.get("industry") or "").strip() and str(y.get("industry") or "").strip():
                             out["industry"] = y.get("industry")
                         out["source"] = f"{out.get('source', 'naver_finance')}+yahoo_backfill"
-                    profile = get_kr_profile(ticker)
+                    profile = get_kr_profile(t)
                     if str(profile.get("sector") or "").strip():
                         out["sector"] = profile.get("sector")
                     if str(profile.get("industry") or "").strip():
                         out["industry"] = profile.get("industry")
                     if not str(out.get("sector") or "").strip():
-                        out["sector"] = find_sector_from_seed(ticker, market)
+                        out["sector"] = find_sector_from_seed(t, m)
                     out["sector"] = normalize_kr_sector_text(str(out.get("sector") or ""))
                     if not str(out.get("industry") or "").strip():
-                        out["industry"] = infer_industry_from_sector(str(out.get("sector") or ""), market)
+                        out["industry"] = infer_industry_from_sector(str(out.get("sector") or ""), m)
                     out["industry"] = normalize_kr_industry_text(str(out.get("industry") or ""), str(out.get("sector") or ""))
                 out["sector"] = canonical_sector(
                     str(out.get("sector") or ""),
                     str(out.get("name") or ""),
                     str(out.get("industry") or ""),
                 )
-                if market == "KR" and not str(out.get("industry") or "").strip():
-                    out["industry"] = infer_industry_from_sector(str(out.get("sector") or ""), market)
+                if m == "KR" and not str(out.get("industry") or "").strip():
+                    out["industry"] = infer_industry_from_sector(str(out.get("sector") or ""), m)
                 return out
             tried.append({"source": out.get("source", "unknown"), "status": "fail", "error": out.get("error", "")})
         return {"ok": False, "error": "All fundamentals providers failed", "providers_tried": tried}
 
-    return cache_get_or_set(f"fundamentals:{market}:{ticker}", 3600, producer)
+    return cache_get_or_set(f"fundamentals:{m}:{t}", 3600, producer)
 
 
 def fetch_news_google_rss(ticker: str, market: str) -> Dict[str, Any]:
@@ -1648,24 +1681,28 @@ def fetch_news_alpha(ticker: str, market: str) -> Dict[str, Any]:
 
 
 def get_news(ticker: str, market: str = "US", days: int = 7) -> Dict[str, Any]:
+    t = canonicalize_input_ticker(ticker, market)
+    m = clean_market(market)
+    d = max(1, min(int(days), 30))
+
     def producer() -> Dict[str, Any]:
         tried = []
-        if market == "KR":
+        if m == "KR":
             providers = (
-                lambda: fetch_news_naver_finance(ticker, market),
-                lambda: fetch_news_google_rss(ticker, market),
+                lambda: fetch_news_naver_finance(t, m),
+                lambda: fetch_news_google_rss(t, m),
             )
         else:
             providers = (
-                lambda: fetch_news_finnhub(ticker, market, days),
-                lambda: fetch_news_alpha(ticker, market),
-                lambda: fetch_news_google_rss(ticker, market),
+                lambda: fetch_news_finnhub(t, m, d),
+                lambda: fetch_news_alpha(t, m),
+                lambda: fetch_news_google_rss(t, m),
             )
         for provider in providers:
             out = provider()
             if out.get("ok") and int(out.get("count", 0) or 0) > 0:
                 out["providers_tried"] = tried + [{"source": out.get("source", "unknown"), "status": "ok"}]
-                out["market"] = market
+                out["market"] = m
                 return out
             err = out.get("error", "")
             if out.get("ok"):
@@ -1673,7 +1710,7 @@ def get_news(ticker: str, market: str = "US", days: int = 7) -> Dict[str, Any]:
             tried.append({"source": out.get("source", "unknown"), "status": "fail", "error": err})
         return {"ok": False, "error": "All news providers failed", "providers_tried": tried}
 
-    return cache_get_or_set(f"news:{market}:{ticker}:{days}", 900, producer)
+    return cache_get_or_set(f"news:{m}:{t}:{d}", 900, producer)
 
 
 def get_sec_ticker_mapping() -> Dict[str, str]:
@@ -1775,13 +1812,15 @@ def get_kr_filings_dart(ticker: str, limit: int = 10) -> Dict[str, Any]:
 
 
 def get_sec_filings(ticker: str, market: str = "US", limit: int = 10) -> Dict[str, Any]:
-    if market == "KR":
-        return cache_get_or_set(f"dart:filings:KR:{normalize_kr_ticker(ticker)}:{limit}", 3600, lambda: get_kr_filings_dart(ticker, limit=limit))
+    t = canonicalize_input_ticker(ticker, market)
+    m = clean_market(market)
+    if m == "KR":
+        return cache_get_or_set(f"dart:filings:KR:{normalize_kr_ticker(t)}:{limit}", 3600, lambda: get_kr_filings_dart(t, limit=limit))
     def producer() -> Dict[str, Any]:
         mapping = get_sec_ticker_mapping()
-        cik = mapping.get(ticker)
+        cik = mapping.get(t)
         if not cik:
-            return {"ok": False, "source": "sec", "error": f"Ticker {ticker} not found in SEC mapping"}
+            return {"ok": False, "source": "sec", "error": f"Ticker {t} not found in SEC mapping"}
         cik10 = cik.zfill(10)
         headers = {"User-Agent": os.getenv("SEC_USER_AGENT", DEFAULT_SEC_USER_AGENT)}
         try:
@@ -1808,9 +1847,9 @@ def get_sec_filings(ticker: str, market: str = "US", limit: int = 10) -> Dict[st
                     "url": url,
                 }
             )
-        return {"ok": True, "source": "sec", "ticker": ticker, "cik": cik10, "count": len(items), "items": items}
+        return {"ok": True, "source": "sec", "ticker": t, "cik": cik10, "count": len(items), "items": items}
 
-    return cache_get_or_set(f"sec:filings:{market}:{ticker}:{limit}", 3600, producer)
+    return cache_get_or_set(f"sec:filings:{m}:{t}:{limit}", 3600, producer)
 
 
 def strip_tags(text: str) -> str:
