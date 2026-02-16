@@ -81,6 +81,49 @@ DEFAULT_RULES = {
     "hype_score_jump": 15.0,
     "new_filing": 1.0,
 }
+LOOKUP_SOURCE_PRIORITY = {
+    "local_seed": 1,
+    "global_alias": 2,
+    "kr_alias": 3,
+    "us_alias": 3,
+    "naver_autocomplete": 4,
+    "naver_search": 5,
+    "dart": 6,
+    "finnhub_search": 7,
+    "yahoo_search": 8,
+    "input_ticker": 9,
+}
+GLOBAL_COMPANY_ALIASES: List[Dict[str, str]] = [
+    # US
+    {"market": "US", "ticker": "MU", "name": "Micron Technology", "sector": "반도체", "aliases": "micron 마이크론"},
+    {"market": "US", "ticker": "QCOM", "name": "Qualcomm", "sector": "반도체", "aliases": "qualcomm 퀄컴"},
+    {"market": "US", "ticker": "INTC", "name": "Intel", "sector": "반도체", "aliases": "intel 인텔"},
+    {"market": "US", "ticker": "ARM", "name": "Arm Holdings", "sector": "반도체", "aliases": "arm 암홀딩스"},
+    {"market": "US", "ticker": "AMAT", "name": "Applied Materials", "sector": "반도체", "aliases": "applied materials 어플라이드머티리얼즈"},
+    {"market": "US", "ticker": "LRCX", "name": "Lam Research", "sector": "반도체", "aliases": "lam research 램리서치"},
+    {"market": "US", "ticker": "KLAC", "name": "KLA", "sector": "반도체", "aliases": "kla 케이엘에이"},
+    {"market": "US", "ticker": "ASML", "name": "ASML", "sector": "반도체", "aliases": "asml 에이에스엠엘"},
+    {"market": "US", "ticker": "TSM", "name": "Taiwan Semiconductor ADR", "sector": "반도체", "aliases": "tsmc tsm 대만반도체"},
+    {"market": "US", "ticker": "SMCI", "name": "Super Micro Computer", "sector": "AI", "aliases": "smci supermicro 슈퍼마이크로"},
+    {"market": "US", "ticker": "CRM", "name": "Salesforce", "sector": "AI", "aliases": "salesforce 세일즈포스"},
+    {"market": "US", "ticker": "ADBE", "name": "Adobe", "sector": "AI", "aliases": "adobe 어도비"},
+    {"market": "US", "ticker": "NOW", "name": "ServiceNow", "sector": "AI", "aliases": "servicenow 서비스나우"},
+    {"market": "US", "ticker": "UBER", "name": "Uber Technologies", "sector": "인터넷플랫폼", "aliases": "uber 우버"},
+    {"market": "US", "ticker": "SQ", "name": "Block", "sector": "금융", "aliases": "block square 스퀘어 블록"},
+    {"market": "US", "ticker": "COIN", "name": "Coinbase", "sector": "금융", "aliases": "coinbase 코인베이스"},
+    # KR
+    {"market": "KR", "ticker": "005930", "name": "삼성전자", "sector": "반도체", "aliases": "samsung samsung electronics 삼성전자"},
+    {"market": "KR", "ticker": "000660", "name": "SK하이닉스", "sector": "반도체", "aliases": "sk hynix 하이닉스"},
+    {"market": "KR", "ticker": "066570", "name": "LG전자", "sector": "IT서비스", "aliases": "lge lg electronics 엘지전자"},
+    {"market": "KR", "ticker": "373220", "name": "LG에너지솔루션", "sector": "2차전지", "aliases": "lg energy solution lg엔솔"},
+    {"market": "KR", "ticker": "003670", "name": "포스코퓨처엠", "sector": "2차전지", "aliases": "posco future m 포스코퓨처m"},
+    {"market": "KR", "ticker": "047810", "name": "한국항공우주", "sector": "조선방산", "aliases": "kai 한국항공우주"},
+    {"market": "KR", "ticker": "012450", "name": "한화에어로스페이스", "sector": "조선방산", "aliases": "hanwha aerospace 한화에어로"},
+    {"market": "KR", "ticker": "010120", "name": "LS ELECTRIC", "sector": "에너지", "aliases": "ls electric ls일렉트릭 ls"},
+    {"market": "KR", "ticker": "009540", "name": "HD한국조선해양", "sector": "조선방산", "aliases": "hd한국조선해양 현대중공업지주"},
+    {"market": "KR", "ticker": "329180", "name": "HD현대중공업", "sector": "조선방산", "aliases": "hd현대중공업 현대중공업"},
+    {"market": "KR", "ticker": "298040", "name": "효성중공업", "sector": "에너지", "aliases": "hyosung heavy industries 효성중공업"},
+]
 CACHE: Dict[str, Tuple[float, Any]] = {}
 CACHE_LOCK = threading.Lock()
 ALERT_THREAD_STOP = threading.Event()
@@ -247,6 +290,56 @@ def provider_error(source: str, error: str) -> Dict[str, Any]:
 
 def normalize_search_key(text: str) -> str:
     return re.sub(r"[\s\W_]+", "", str(text or "").lower(), flags=re.UNICODE)
+
+
+def tokenize_lookup_text(text: str) -> List[str]:
+    raw = str(text or "").strip().lower()
+    if not raw:
+        return []
+    out: List[str] = []
+    for tok in re.split(r"[\s/(),.&+\-_:;]+", raw):
+        n = normalize_search_key(tok)
+        if n:
+            out.append(n)
+    return out
+
+
+def source_priority(source: str) -> int:
+    return LOOKUP_SOURCE_PRIORITY.get(str(source or "").strip().lower(), 99)
+
+
+def score_lookup_match(query: str, item: Dict[str, Any], preferred_market: str = "ALL") -> float:
+    q = normalize_search_key(query)
+    if not q:
+        return 0.0
+    ticker = normalize_search_key(str(item.get("ticker", "")))
+    name = normalize_search_key(str(item.get("name", "")))
+    sector = normalize_search_key(str(item.get("sector", "")))
+    market = str(item.get("market", "")).upper()
+    text = f"{ticker}{name}{sector}"
+    score = 0.0
+    if q == ticker and ticker:
+        score += 140.0
+    if q == name and name:
+        score += 130.0
+    if ticker and q in ticker:
+        score += 110.0
+    if ticker and ticker in q and len(ticker) >= 3:
+        score += 70.0
+    if name and q in name:
+        score += 100.0
+    if name and name in q and len(name) >= 4:
+        score += 45.0
+    if q in text:
+        score += 35.0
+    for tok in tokenize_lookup_text(query):
+        if len(tok) >= 2 and tok in text:
+            score += 9.0
+    pref = str(preferred_market or "ALL").upper()
+    if pref != "ALL":
+        score += 14.0 if market == pref else -5.0
+    score += max(0.0, 10.0 - float(source_priority(str(item.get("source", "")))))
+    return score
 
 
 def canonical_sector(sector: str, name: str = "", industry: str = "") -> str:
@@ -3232,6 +3325,7 @@ def lookup_company_local(query: str, market: str, limit: int = 20) -> List[Dict[
     q = normalize_search_key(query)
     if not q:
         return []
+    tokens = tokenize_lookup_text(query)
     rows = []
     for item in load_sector_seed():
         item_market = str(item.get("market", "")).upper()
@@ -3241,17 +3335,52 @@ def lookup_company_local(query: str, market: str, limit: int = 20) -> List[Dict[
         name = str(item.get("name", ""))
         sector = canonical_sector(str(item.get("sector", "")), name, "")
         text = normalize_search_key(f"{ticker} {name} {sector}")
-        if q in text:
+        token_hit = any(len(tok) >= 2 and tok in text for tok in tokens)
+        if q in text or (len(q) >= 3 and text in q) or token_hit:
+            row = {
+                "ticker": ticker,
+                "name": name,
+                "sector": sector,
+                "market": item_market,
+                "source": "local_seed",
+            }
+            row["score"] = score_lookup_match(query, row, preferred_market=market)
             rows.append(
-                {
-                    "ticker": ticker,
-                    "name": name,
-                    "sector": sector,
-                    "market": item_market,
-                    "source": "local_seed",
-                }
+                row
             )
+    rows.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
     return rows[: max(1, min(limit, 100))]
+
+
+def lookup_company_global_alias(query: str, market: str, limit: int = 20) -> List[Dict[str, Any]]:
+    q = normalize_search_key(query)
+    if not q:
+        return []
+    lim = max(1, min(limit, 100))
+    out: List[Dict[str, Any]] = []
+    for item in GLOBAL_COMPANY_ALIASES:
+        item_market = str(item.get("market", "")).upper()
+        if market != "ALL" and item_market != market:
+            continue
+        ticker = str(item.get("ticker", "")).upper()
+        name = str(item.get("name", "")).strip()
+        sector = canonical_sector(str(item.get("sector", "")).strip(), name, "")
+        aliases = str(item.get("aliases", ""))
+        text = normalize_search_key(f"{ticker} {name} {aliases} {sector}")
+        if q in text or (len(q) >= 3 and text in q):
+            row = {
+                "ticker": ticker,
+                "name": name,
+                "sector": sector,
+                "market": item_market,
+                "source": "global_alias",
+            }
+            row["score"] = score_lookup_match(query, row, preferred_market=market)
+            out.append(row)
+        if len(out) >= lim:
+            break
+    out.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+    return out
 
 
 def lookup_company_us_finnhub(query: str, limit: int = 10) -> List[Dict[str, Any]]:
@@ -3299,6 +3428,10 @@ def lookup_company_us_alias(query: str, limit: int = 20) -> List[Dict[str, Any]]
         ("NFLX", "Netflix", ["netflix", "넷플릭스"]),
         ("AMD", "Advanced Micro Devices", ["amd"]),
         ("AVGO", "Broadcom Inc.", ["broadcom", "브로드컴"]),
+        ("MU", "Micron Technology", ["micron", "마이크론"]),
+        ("QCOM", "Qualcomm", ["qualcomm", "퀄컴"]),
+        ("INTC", "Intel", ["intel", "인텔"]),
+        ("ASML", "ASML", ["asml", "에이에스엠엘"]),
         ("TSM", "Taiwan Semiconductor ADR", ["tsm", "tsmc", "대만반도체"]),
         ("PLTR", "Palantir Technologies", ["palantir", "팔란티어"]),
         ("BRK.B", "Berkshire Hathaway", ["berkshire", "버크셔", "워런버핏", "버핏"]),
@@ -3309,14 +3442,16 @@ def lookup_company_us_alias(query: str, limit: int = 20) -> List[Dict[str, Any]]
     for ticker, name, terms in aliases:
         match_text = " ".join([ticker, name] + terms)
         if q in normalize_search_key(match_text):
+            row = {
+                "ticker": ticker,
+                "name": name,
+                "sector": find_sector_from_seed(ticker, "US"),
+                "market": "US",
+                "source": "us_alias",
+            }
+            row["score"] = score_lookup_match(query, row, preferred_market="US")
             out.append(
-                {
-                    "ticker": ticker,
-                    "name": name,
-                    "sector": find_sector_from_seed(ticker, "US"),
-                    "market": "US",
-                    "source": "us_alias",
-                }
+                row
             )
         if len(out) >= lim:
             break
@@ -3477,19 +3612,25 @@ def lookup_company_kr_alias(query: str, limit: int = 20) -> List[Dict[str, Any]]
         ("005940", "NH투자증권", "증권"),
         ("051600", "한전KPS", "에너지"),
         ("018880", "한온시스템", "자동차"),
+        ("010120", "LS ELECTRIC", "에너지"),
+        ("047810", "한국항공우주", "조선방산"),
+        ("012450", "한화에어로스페이스", "조선방산"),
+        ("329180", "HD현대중공업", "조선방산"),
     ]
     out: List[Dict[str, Any]] = []
     for code, name, sector in aliases:
         text = normalize_search_key(f"{code} {name} {sector}")
         if q in text:
+            row = {
+                "ticker": code,
+                "name": name,
+                "sector": canonical_sector(sector, name, ""),
+                "market": "KR",
+                "source": "kr_alias",
+            }
+            row["score"] = score_lookup_match(query, row, preferred_market="KR")
             out.append(
-                {
-                    "ticker": code,
-                    "name": name,
-                    "sector": canonical_sector(sector, name, ""),
-                    "market": "KR",
-                    "source": "kr_alias",
-                }
+                row
             )
         if len(out) >= max(1, min(limit, 100)):
             break
@@ -3497,16 +3638,35 @@ def lookup_company_kr_alias(query: str, limit: int = 20) -> List[Dict[str, Any]]
 
 
 def dedupe_companies(items: List[Dict[str, Any]], limit: int = 20) -> List[Dict[str, Any]]:
-    seen = set()
-    out = []
+    best_by_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
     for item in items:
-        key = (item.get("market"), item.get("ticker"))
-        if key in seen:
+        market = str(item.get("market", "")).upper()
+        ticker = str(item.get("ticker", "")).upper()
+        if not market or not ticker:
             continue
-        seen.add(key)
-        out.append(item)
-        if len(out) >= max(1, min(limit, 100)):
-            break
+        key = (market, ticker)
+        cur = best_by_key.get(key)
+        if cur is None:
+            best_by_key[key] = item
+            continue
+        cur_score = float(cur.get("score", 0.0))
+        new_score = float(item.get("score", 0.0))
+        if new_score > cur_score:
+            best_by_key[key] = item
+            continue
+        if abs(new_score - cur_score) < 0.001:
+            if source_priority(str(item.get("source", ""))) < source_priority(str(cur.get("source", ""))):
+                best_by_key[key] = item
+    out = list(best_by_key.values())
+    out.sort(
+        key=lambda x: (
+            -float(x.get("score", 0.0)),
+            source_priority(str(x.get("source", ""))),
+            str(x.get("market", "")),
+            str(x.get("ticker", "")),
+        )
+    )
+    out = out[: max(1, min(limit, 100))]
     return out
 
 
@@ -3515,18 +3675,38 @@ def lookup_company(query: str, market: str = "US", limit: int = 20) -> Dict[str,
     if not q:
         return {"ok": False, "error": "query is required"}
     lookup_market = clean_lookup_market(market)
-    local = lookup_company_local(q, lookup_market, limit=limit)
+    local = lookup_company_local(q, lookup_market, limit=max(limit * 2, 40))
     provider: List[Dict[str, Any]] = []
+    provider.extend(lookup_company_global_alias(q, lookup_market, limit=max(limit, 30)))
     if lookup_market in ("US", "ALL"):
-        provider.extend(lookup_company_us_alias(q, limit=limit))
-        provider.extend(lookup_company_us_finnhub(q, limit=limit))
+        provider.extend(lookup_company_us_alias(q, limit=max(limit, 30)))
+        provider.extend(lookup_company_us_finnhub(q, limit=max(limit, 30)))
     if lookup_market in ("KR", "ALL"):
-        provider.extend(lookup_company_kr_dart(q, limit=limit))
-        provider.extend(lookup_company_kr_naver_autocomplete(q, limit=limit))
-        provider.extend(lookup_company_kr_naver(q, limit=limit))
-        provider.extend(lookup_company_kr_alias(q, limit=limit))
-    provider.extend(lookup_company_yahoo(q, market=lookup_market, limit=limit))
-    items = dedupe_companies(local + provider, limit=limit)
+        provider.extend(lookup_company_kr_dart(q, limit=max(limit, 30)))
+        provider.extend(lookup_company_kr_naver_autocomplete(q, limit=max(limit, 30)))
+        provider.extend(lookup_company_kr_naver(q, limit=max(limit, 30)))
+        provider.extend(lookup_company_kr_alias(q, limit=max(limit, 30)))
+    provider.extend(lookup_company_yahoo(q, market=lookup_market, limit=max(limit, 30)))
+    for item in local + provider:
+        if "score" not in item:
+            item["score"] = score_lookup_match(q, item, preferred_market=lookup_market)
+    items = dedupe_companies(local + provider, limit=max(limit * 2, 40))
+
+    # Cross-market fallback for frequent misses caused by strict market selection.
+    # Keep this lightweight: local seed + alias only (no extra network calls).
+    fallback_market = ""
+    if not items and lookup_market in ("US", "KR"):
+        fallback_market = "KR" if lookup_market == "US" else "US"
+        fallback_local = lookup_company_local(q, fallback_market, limit=max(limit, 40))
+        fallback_alias = lookup_company_global_alias(q, fallback_market, limit=max(limit, 40))
+        if fallback_market == "US":
+            fallback_alias.extend(lookup_company_us_alias(q, limit=max(limit, 20)))
+        if fallback_market == "KR":
+            fallback_alias.extend(lookup_company_kr_alias(q, limit=max(limit, 20)))
+        for item in fallback_local + fallback_alias:
+            if "score" not in item:
+                item["score"] = score_lookup_match(q, item, preferred_market=lookup_market)
+        items = dedupe_companies(fallback_local + fallback_alias, limit=max(limit * 2, 40))
 
     # Last-resort fallback: treat input itself as ticker when providers are unavailable.
     if not items:
@@ -3540,6 +3720,7 @@ def lookup_company(query: str, market: str = "US", limit: int = 20) -> Dict[str,
                     "sector": find_sector_from_seed(t, "US"),
                     "market": "US",
                     "source": "input_ticker",
+                    "score": 1.0,
                 }
             )
         elif lookup_market in ("KR", "ALL") and re.match(r"^[0-9]{4,6}$", raw):
@@ -3551,11 +3732,26 @@ def lookup_company(query: str, market: str = "US", limit: int = 20) -> Dict[str,
                     "sector": find_sector_from_seed(t, "KR"),
                     "market": "KR",
                     "source": "input_ticker",
+                    "score": 1.0,
                 }
             )
 
     items = dedupe_companies(items, limit=limit)
-    items = sorted(items, key=lambda x: (str(x.get("market", "")), str(x.get("ticker", ""))))
+    market_rank = {
+        "US": 0 if lookup_market == "US" else (1 if lookup_market == "KR" else 0),
+        "KR": 0 if lookup_market == "KR" else (1 if lookup_market == "US" else 0),
+    }
+    items = sorted(
+        items,
+        key=lambda x: (
+            market_rank.get(str(x.get("market", "")).upper(), 2),
+            -float(x.get("score", 0.0)),
+            source_priority(str(x.get("source", ""))),
+            str(x.get("name", "")),
+            str(x.get("ticker", "")),
+        ),
+    )
+    items = items[: max(1, min(limit, 100))]
     src_counts: Dict[str, int] = {}
     for it in items:
         src = str(it.get("source") or "unknown")
@@ -3567,6 +3763,7 @@ def lookup_company(query: str, market: str = "US", limit: int = 20) -> Dict[str,
         count=len(items),
         local_count=len(local),
         provider_count=len(provider),
+        fallback_market=fallback_market,
         source_counts=src_counts,
     )
     return {"ok": True, "query": q, "market": lookup_market, "count": len(items), "items": items}

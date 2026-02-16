@@ -1864,6 +1864,9 @@ function sortCompanyItems(items, preferredMarket = "ALL") {
     const ra = rank(a.market);
     const rb = rank(b.market);
     if (ra !== rb) return ra - rb;
+    const saScore = Number(a.score || 0);
+    const sbScore = Number(b.score || 0);
+    if (Math.abs(sbScore - saScore) > 0.001) return sbScore - saScore;
     const sa = String(a.sector || "");
     const sb = String(b.sector || "");
     if (sa && !sb) return -1;
