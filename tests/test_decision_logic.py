@@ -119,6 +119,12 @@ class DecisionLogicTests(unittest.TestCase):
         self.assertIn("resilience_score", rec)
         self.assertIn("label", rec)
 
+    def test_lookup_company_handles_posco_typo_query(self):
+        out = ws.lookup_company("POSCE홀딩스", market="KR", limit=10)
+        self.assertTrue(out.get("ok"))
+        items = out.get("items", [])
+        self.assertTrue(any(str(x.get("ticker")) == "005490" for x in items))
+
 
 if __name__ == '__main__':
     unittest.main()

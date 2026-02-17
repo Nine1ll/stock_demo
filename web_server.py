@@ -330,6 +330,64 @@ def normalize_search_key(text: str) -> str:
     return re.sub(r"[\s\W_]+", "", str(text or "").lower(), flags=re.UNICODE)
 
 
+def _edit_distance_leq_one(a: str, b: str) -> bool:
+    """Fast check for Levenshtein distance <= 1."""
+    if a == b:
+        return True
+    la, lb = len(a), len(b)
+    if abs(la - lb) > 1:
+        return False
+    # Same length: allow one substitution.
+    if la == lb:
+        diff = 0
+        for ca, cb in zip(a, b):
+            if ca != cb:
+                diff += 1
+                if diff > 1:
+                    return False
+        return diff <= 1
+    # Length differs by one: allow one insertion/deletion.
+    if la > lb:
+        a, b = b, a
+        la, lb = lb, la
+    i = 0
+    j = 0
+    skipped = False
+    while i < la and j < lb:
+        if a[i] == b[j]:
+            i += 1
+            j += 1
+            continue
+        if skipped:
+            return False
+        skipped = True
+        j += 1
+    return True
+
+
+def fuzzy_name_match(query_norm: str, candidate_norm: str) -> bool:
+    """Handle frequent one-typo queries like POSCE홀딩스 -> POSCO홀딩스."""
+    q = str(query_norm or "").strip()
+    c = str(candidate_norm or "").strip()
+    if not q or not c:
+        return False
+    if q == c:
+        return True
+    # Avoid noisy fuzzy matches on very short strings.
+    if min(len(q), len(c)) < 4:
+        return False
+    if _edit_distance_leq_one(q, c):
+        return True
+    # Support one adjacent transposition (e.g., psoco -> posco).
+    if len(q) == len(c):
+        for i in range(len(q) - 1):
+            if q[i] != q[i + 1]:
+                swapped = q[:i] + q[i + 1] + q[i] + q[i + 2 :]
+                if swapped == c:
+                    return True
+    return False
+
+
 def tokenize_lookup_text(text: str) -> List[str]:
     raw = str(text or "").strip().lower()
     if not raw:
@@ -368,6 +426,8 @@ def score_lookup_match(query: str, item: Dict[str, Any], preferred_market: str =
         score += 100.0
     if name and name in q and len(name) >= 4:
         score += 45.0
+    if name and fuzzy_name_match(q, name):
+        score += 82.0
     if q in text:
         score += 35.0
     for tok in tokenize_lookup_text(query):
@@ -3094,8 +3154,9 @@ def lookup_company_local(query: str, market: str, limit: int = 20) -> List[Dict[
         name = str(item.get("name", ""))
         sector = canonical_sector(str(item.get("sector", "")), name, "")
         text = normalize_search_key(f"{ticker} {name} {sector}")
+        name_key = normalize_search_key(name)
         token_hit = any(len(tok) >= 2 and tok in text for tok in tokens)
-        if q in text or (len(q) >= 3 and text in q) or token_hit:
+        if q in text or (len(q) >= 3 and text in q) or token_hit or fuzzy_name_match(q, name_key):
             row = {
                 "ticker": ticker,
                 "name": name,
@@ -3126,7 +3187,8 @@ def lookup_company_global_alias(query: str, market: str, limit: int = 20) -> Lis
         sector = canonical_sector(str(item.get("sector", "")).strip(), name, "")
         aliases = str(item.get("aliases", ""))
         text = normalize_search_key(f"{ticker} {name} {aliases} {sector}")
-        if q in text or (len(q) >= 3 and text in q):
+        name_key = normalize_search_key(name)
+        if q in text or (len(q) >= 3 and text in q) or fuzzy_name_match(q, name_key):
             row = {
                 "ticker": ticker,
                 "name": name,
@@ -3376,11 +3438,12 @@ def lookup_company_kr_alias(query: str, limit: int = 20) -> List[Dict[str, Any]]
         ("047810", "한국항공우주", "조선방산"),
         ("012450", "한화에어로스페이스", "조선방산"),
         ("329180", "HD현대중공업", "조선방산"),
+        ("005490", "POSCO홀딩스", "철강"),
     ]
     out: List[Dict[str, Any]] = []
     for code, name, sector in aliases:
         text = normalize_search_key(f"{code} {name} {sector}")
-        if q in text:
+        if q in text or fuzzy_name_match(q, normalize_search_key(name)):
             row = {
                 "ticker": code,
                 "name": name,
