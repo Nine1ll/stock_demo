@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+*.env.local
+*.secrets
+*.secret
 
 # Python cache/build
 __pycache__/
@@ -11,17 +14,27 @@ __pycache__/
 *.so
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 .venv/
 venv/
+.coverage
+coverage.xml
+htmlcov/
 
 # Local runtime data
 data/stock_app.db
 data/*.sqlite
+data/*.sqlite3
 data/*.db
 data/*.db-*
 data/*.sqlite-*
 *.log
 logs/
+tmp/
+*.pid
+
+# Local agent prompts/workflows
+agents/
 
 # OS/editor
 .DS_Store
