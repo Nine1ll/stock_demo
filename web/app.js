@@ -129,10 +129,13 @@ const els = {
   scenarioAnalyzerCard: document.getElementById("scenarioAnalyzerCard"),
   prefHorizon: document.getElementById("prefHorizon"),
   prefRisk: document.getElementById("prefRisk"),
+  feedIntensity: document.getElementById("feedIntensity"),
   scenarioFx: document.getElementById("scenarioFx"),
   scenarioEv: document.getElementById("scenarioEv"),
   scenarioFxText: document.getElementById("scenarioFxText"),
   scenarioEvText: document.getElementById("scenarioEvText"),
+  spotlightQuery: document.getElementById("spotlightQuery"),
+  spotlightSearchBtn: document.getElementById("spotlightSearchBtn"),
   companyQuery: document.getElementById("companyQuery"),
   searchCompanyBtn: document.getElementById("searchCompanyBtn"),
   sectorSelect: document.getElementById("sectorSelect"),
@@ -236,6 +239,12 @@ const sectorStocksCache = new Map();
 const compareDataCache = new Map();
 const peerQuoteCache = new Map();
 
+const FEED_INTENSITY_CONFIG = {
+  light: { newsDays: 5, newsLimit: 15, filingLimit: 10, techLimit: 8 },
+  standard: { newsDays: 7, newsLimit: 30, filingLimit: 20, techLimit: 16 },
+  deep: { newsDays: 14, newsLimit: 60, filingLimit: 40, techLimit: 32 },
+};
+
 function normalize(value) {
   return (value || "").trim().toLowerCase();
 }
@@ -247,6 +256,56 @@ function parseFloatSafe(value, defaultValue = 0) {
   if (!text) return defaultValue;
   const n = Number.parseFloat(text);
   return Number.isFinite(n) ? n : defaultValue;
+}
+
+function getFeedIntensity() {
+  const raw = String(els.feedIntensity?.value || "standard").trim().toLowerCase();
+  if (raw === "light" || raw === "deep" || raw === "standard") return raw;
+  return "standard";
+}
+
+function getFeedConfig() {
+  return FEED_INTENSITY_CONFIG[getFeedIntensity()] || FEED_INTENSITY_CONFIG.standard;
+}
+
+function parseSpotlightInput(rawText) {
+  const raw = String(rawText || "").trim();
+  let market = "";
+  let sector = "";
+  let text = raw;
+  const marketMatch = text.match(/(?:^|\s)m(?:arket)?\s*:\s*(US|KR|ALL)(?=\s|$)/i);
+  if (marketMatch) {
+    market = String(marketMatch[1] || "").toUpperCase();
+    text = text.replace(marketMatch[0], " ").trim();
+  }
+  const sectorMatch = text.match(/(?:^|\s)s(?:ector)?\s*:\s*([^\s]+)/i);
+  if (sectorMatch) {
+    sector = String(sectorMatch[1] || "").trim();
+    text = text.replace(sectorMatch[0], " ").trim();
+  }
+  text = text.replace(/\s+/g, " ").trim();
+  return { market, sector, query: text };
+}
+
+function applySpotlightToInputs(rawText) {
+  const parsed = parseSpotlightInput(rawText);
+  if (parsed.market && els.intelMarket) {
+    els.intelMarket.value = parsed.market;
+  }
+  if (parsed.sector && els.sectorSelect) {
+    const options = Array.from(els.sectorSelect.options || []).map((o) => o.value);
+    if (!options.includes(parsed.sector)) {
+      const option = document.createElement("option");
+      option.value = parsed.sector;
+      option.textContent = parsed.sector;
+      els.sectorSelect.appendChild(option);
+    }
+    els.sectorSelect.value = parsed.sector;
+  }
+  if (els.companyQuery && (parsed.query || rawText)) {
+    els.companyQuery.value = parsed.query;
+  }
+  return parsed;
 }
 
 function parseCSV(text) {
@@ -1297,9 +1356,10 @@ function renderNews(data) {
     const dt = escapeHtml(String(item.datetime || item.time || "").slice(0, 16) || "-");
     const senti = classifySentimentFromText(headline);
     const tagClass = senti === "positive" ? "pos" : senti === "negative" ? "neg" : "";
+    const cardClass = senti === "positive" ? "sentiment-positive" : senti === "negative" ? "sentiment-negative" : "sentiment-neutral";
     const tags = extractTags(headline).map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join("");
     const sentiLabel = senti === "positive" ? "긍정" : senti === "negative" ? "부정" : "중립";
-    return `<li>
+    return `<li class="sentiment-card ${cardClass}">
       <a class="intel-link" href="${url}" target="_blank" rel="noopener noreferrer">${title}</a>
       <div class="muted-sm">${src} · ${dt} <span class="tag ${tagClass}">${sentiLabel}</span>${tags}</div>
     </li>`;
@@ -1522,7 +1582,8 @@ function clipText(text, maxLen = 38) {
 }
 
 async function fetchCompareTabData(item, tab) {
-  const key = `${compareItemKey(item)}:${tab}`;
+  const intensity = getFeedIntensity();
+  const key = `${compareItemKey(item)}:${tab}:${intensity}`;
   const now = Date.now();
   const hit = compareDataCache.get(key);
   if (hit && hit.expireAt > now) return hit.value;
@@ -1545,10 +1606,11 @@ async function fetchCompareTabData(item, tab) {
     ]);
     data = { fund, decision, backtest };
   } else {
+    const feed = getFeedConfig();
     const [news, filings, tech] = await Promise.all([
-      fetchApi(`/api/news?ticker=${ticker}&market=${market}&days=7`),
-      fetchApi(`/api/filings?ticker=${ticker}&market=${market}&limit=10`),
-      fetchApi(`/api/technology?query=${encodeURIComponent(item.name || item.ticker)}&limit=8`),
+      fetchApi(`/api/news?ticker=${ticker}&market=${market}&days=${feed.newsDays}&limit=${feed.newsLimit}`),
+      fetchApi(`/api/filings?ticker=${ticker}&market=${market}&limit=${feed.filingLimit}`),
+      fetchApi(`/api/technology?query=${encodeURIComponent(item.name || item.ticker)}&limit=${feed.techLimit}`),
     ]);
     data = { news, filings, tech };
   }
@@ -1619,12 +1681,16 @@ async function renderSectorComparePanel(tab = currentCompareTab) {
       });
       table = renderCompareTable(headers, rows);
     } else {
-      const headers = ["종목", "뉴스(7일)", "최근 헤드라인", "공시(10건)", "최근 공시", "기술자료", "피드 강도"];
+      const feedCfg = getFeedConfig();
+      const headers = [`종목`, `뉴스(${feedCfg.newsDays}일)`, "최근 헤드라인", `공시(${feedCfg.filingLimit}건)`, "최근 공시", `기술자료(${feedCfg.techLimit})`, "피드 강도"];
       const rows = compareSelection.map((it, idx) => {
         const n = dataset[idx].news || {};
         const f = dataset[idx].filings || {};
         const t = dataset[idx].tech || {};
-        const feed = (Number(n.count || 0) * 1.2) + (Number(f.count || 0) * 0.9) + (Number(t.count || 0) * 1.1);
+        const newsRatio = Math.min(1, Number(n.count || 0) / Math.max(1, feedCfg.newsLimit));
+        const filingRatio = Math.min(1, Number(f.count || 0) / Math.max(1, feedCfg.filingLimit));
+        const techRatio = Math.min(1, Number(t.count || 0) / Math.max(1, feedCfg.techLimit));
+        const feed = ((newsRatio * 1.2) + (filingRatio * 0.9) + (techRatio * 1.1)) * 100;
         const topNews = clipText((n.items || [])[0]?.headline || (n.items || [])[0]?.title || "-", 34);
         const topFiling = clipText((f.items || [])[0]?.form || (f.items || [])[0]?.title || "-", 26);
         return [
@@ -1634,7 +1700,7 @@ async function renderSectorComparePanel(tab = currentCompareTab) {
           String(f.count || 0),
           topFiling,
           String(t.count || 0),
-          feed.toFixed(1),
+          `${feed.toFixed(1)} / 100`,
         ];
       });
       table = renderCompareTable(headers, rows);
@@ -1821,6 +1887,9 @@ function sortCompanyItems(items, preferredMarket = "ALL") {
     const ra = rank(a.market);
     const rb = rank(b.market);
     if (ra !== rb) return ra - rb;
+    const saScore = Number(a.score || 0);
+    const sbScore = Number(b.score || 0);
+    if (Math.abs(sbScore - saScore) > 0.001) return sbScore - saScore;
     const sa = String(a.sector || "");
     const sb = String(b.sector || "");
     if (sa && !sb) return -1;
@@ -2045,7 +2114,10 @@ function isLikelyTicker(input, market) {
   const raw = String(input || "").trim();
   if (!raw) return false;
   if (market === "KR") return /^[0-9]{4,6}$/.test(raw);
-  return /^[A-Za-z][A-Za-z0-9.\-]{0,9}$/.test(raw);
+  // US ticker heuristic:
+  // - Typical symbols are <= 5 chars (e.g., AAPL, GOOGL, TSLA)
+  // - Allow class suffix style (e.g., BRK.B, BRK-B)
+  return /^[A-Za-z]{1,5}([.\-][A-Za-z0-9]{1,4})?$/.test(raw);
 }
 
 async function resolveTickerInput(rawInput, market) {
@@ -2082,6 +2154,25 @@ async function resolveTickerInput(rawInput, market) {
   }
   if (isLikelyTicker(raw, market)) {
     return { ticker: market === "KR" ? normalizeKRTicker(raw) : raw.toUpperCase(), name: "", market };
+  }
+  // For name-like US text (e.g., GOOGLE), try lookup first instead of forcing ticker.
+  const looksNameLikeUs = market === "US" && /^[A-Za-z][A-Za-z\s]{4,}$/.test(raw);
+  if (looksNameLikeUs) {
+    try {
+      const res = await fetchApi(
+        `/api/company-lookup?query=${encodeURIComponent(raw)}&market=US&limit=1`
+      );
+      const first = (res.items || [])[0];
+      if (first?.ticker) {
+        return {
+          ticker: String(first.ticker).toUpperCase(),
+          name: String(first.name || ""),
+          market: "US",
+        };
+      }
+    } catch (_err) {
+      // fallback below
+    }
   }
   try {
     const res = await fetchApi(
@@ -2123,13 +2214,20 @@ async function loadSectorOptions() {
 async function searchCompanyByName() {
   showLoadingOverlay("회사명을 검색하고 데이터를 조회하는 중...");
   try {
+  const spotlightRaw = String(els.spotlightQuery?.value || "").trim();
+  const parsed = applySpotlightToInputs(spotlightRaw);
   const q = String(els.companyQuery.value || "").trim();
-  const market = String(els.intelMarket.value || "US").toUpperCase();
+  const market = String(els.intelMarket.value || parsed.market || "US").toUpperCase();
   const queryHasHangul = hasHangulText(q);
   if (!q) throw new Error("회사 이름을 입력하세요.");
   let items = [];
   let usedFallback = false;
-  const lookupOrder = queryHasHangul ? ["KR", "ALL", market] : [market, "ALL"];
+  let lookupOrder = [market, "ALL"];
+  if (queryHasHangul) {
+    if (market === "US") lookupOrder = ["US", "ALL", "KR"];
+    else if (market === "KR") lookupOrder = ["KR", "ALL", "US"];
+    else lookupOrder = ["KR", "US", "ALL"];
+  }
   for (const lookupMarket of lookupOrder) {
     if (items.length) break;
     try {
@@ -2150,11 +2248,12 @@ async function searchCompanyByName() {
     const watchlistItems = await lookupCompanyFromWatchlist(q, market);
     if (watchlistItems.length) items = watchlistItems;
   }
-  if (queryHasHangul) {
+  if (queryHasHangul && market !== "US") {
     const krItems = items.filter((x) => String(x.market || "").toUpperCase() === "KR");
     if (krItems.length) items = krItems;
   }
-  items = sortCompanyItems(items, queryHasHangul ? "KR" : market);
+  const preferredMarket = queryHasHangul && market !== "US" ? "KR" : market;
+  items = sortCompanyItems(items, preferredMarket);
   renderRelatedStocks(items, "검색 결과 없음");
   const first = items[0];
   const bestSector = String(pickBestSectorFromItems(items, first?.name || q) || "").trim();
@@ -2195,6 +2294,25 @@ async function searchCompanyByName() {
   } finally {
     hideLoadingOverlay();
   }
+}
+
+async function submitSpotlightQuery() {
+  const raw = String(els.spotlightQuery?.value || "").trim();
+  const parsed = applySpotlightToInputs(raw);
+  const queryText = String(parsed.query || "").trim();
+  if (!queryText) throw new Error("검색어를 입력하세요.");
+  if (els.intelMeta) {
+    els.intelMeta.textContent = "통합 검색 실행 중...";
+    els.intelMeta.style.background = "#eef2ff";
+    els.intelMeta.style.color = "#334155";
+  }
+  const market = String(els.intelMarket?.value || "US").toUpperCase();
+  if (isLikelyTicker(queryText, market)) {
+    els.intelTicker.value = market === "KR" ? normalizeKRTicker(queryText) : queryText.toUpperCase();
+    await loadIntelligence();
+    return;
+  }
+  await searchCompanyByName();
 }
 
 async function loadStocksBySector(forcedSector = "", options = {}) {
@@ -2547,6 +2665,10 @@ async function loadIntelligence(options = {}) {
     els.intelTicker.value = ticker;
   }
   els.intelMarket.value = market;
+  if (els.spotlightQuery) {
+    const q = String(els.companyQuery?.value || resolved.name || ticker).trim();
+    els.spotlightQuery.value = `${q || ticker} m:${market}`;
+  }
   const displayName = (resolved.name || (await getLocalCompanyNameByTicker(ticker, market)) || rawInput).trim();
 
   els.intelMeta.textContent = `${ticker} (${market}) 조회 중...`;
@@ -2556,6 +2678,7 @@ async function loadIntelligence(options = {}) {
   const encodedTicker = encodeURIComponent(ticker);
   const encodedMarket = encodeURIComponent(market);
   const encodedQuery = encodeURIComponent(techQuery || resolved.name || rawInput);
+  const feedCfg = getFeedConfig();
   newsExpanded = false;
   filingExpanded = false;
   techExpanded = false;
@@ -2566,9 +2689,9 @@ async function loadIntelligence(options = {}) {
   const [quoteRes, fundamentalsRes, newsRes, filingsRes, technologyRes, historyRes] = await Promise.allSettled([
     fetchApi(`/api/quote?ticker=${encodedTicker}&market=${encodedMarket}`),
     fetchApi(`/api/fundamentals?ticker=${encodedTicker}&market=${encodedMarket}`),
-    fetchApi(`/api/news?ticker=${encodedTicker}&market=${encodedMarket}&days=7`),
-    fetchApi(`/api/filings?ticker=${encodedTicker}&market=${encodedMarket}&limit=10`),
-    fetchApi(`/api/technology?query=${encodedQuery}&limit=8`),
+    fetchApi(`/api/news?ticker=${encodedTicker}&market=${encodedMarket}&days=${feedCfg.newsDays}&limit=${feedCfg.newsLimit}`),
+    fetchApi(`/api/filings?ticker=${encodedTicker}&market=${encodedMarket}&limit=${feedCfg.filingLimit}`),
+    fetchApi(`/api/technology?query=${encodedQuery}&limit=${feedCfg.techLimit}`),
     fetchApi(`/api/price-history?ticker=${encodedTicker}&market=${encodedMarket}&period=3mo`),
   ]);
   const quoteData =
@@ -2748,6 +2871,30 @@ function bindEvents() {
       });
     });
   }
+  if (els.spotlightSearchBtn) {
+    els.spotlightSearchBtn.addEventListener("click", () => {
+      submitSpotlightQuery().catch((err) => {
+        if (els.intelMeta) {
+          els.intelMeta.textContent = `오류: ${err.message}`;
+          els.intelMeta.style.background = "#fee2e2";
+          els.intelMeta.style.color = "#b91c1c";
+        }
+      });
+    });
+  }
+  if (els.spotlightQuery) {
+    els.spotlightQuery.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      ev.preventDefault();
+      submitSpotlightQuery().catch((err) => {
+        if (els.intelMeta) {
+          els.intelMeta.textContent = `오류: ${err.message}`;
+          els.intelMeta.style.background = "#fee2e2";
+          els.intelMeta.style.color = "#b91c1c";
+        }
+      });
+    });
+  }
   if (els.loadSectorBtn) {
     els.loadSectorBtn.addEventListener("click", () => {
       loadStocksBySector().catch((err) => {
@@ -2795,6 +2942,7 @@ function bindEvents() {
         els.watchTicker.value = ticker;
         if (market) els.watchMarket.value = market;
         if (name) els.companyQuery.value = name;
+        if (name && els.spotlightQuery) els.spotlightQuery.value = `${name}${market ? ` m:${market}` : ""}`;
         if (sector) {
           const options = Array.from(els.sectorSelect.options || []).map((o) => o.value);
           if (!options.includes(sector)) {
@@ -2891,6 +3039,15 @@ function bindEvents() {
   };
   if (els.prefHorizon) els.prefHorizon.addEventListener("change", reloadDecision);
   if (els.prefRisk) els.prefRisk.addEventListener("change", reloadDecision);
+  if (els.feedIntensity) {
+    els.feedIntensity.addEventListener("change", () => {
+      compareDataCache.clear();
+      if (!latestDecisionTicker) return;
+      loadIntelligence({ showOverlay: false }).catch(() => {
+        // no-op
+      });
+    });
+  }
   if (els.scenarioFx) {
     els.scenarioFx.addEventListener("input", () => {
       if (els.scenarioFxText) els.scenarioFxText.textContent = `${Number.parseFloat(String(els.scenarioFx.value || "0")).toFixed(1)}%`;
@@ -2914,6 +3071,8 @@ function bindEvents() {
       els.prefHorizon.value = "long";
       els.scenarioFx.value = "2";
       els.scenarioEv.value = "0";
+      if (els.scenarioFxText) els.scenarioFxText.textContent = "2.0%";
+      if (els.scenarioEvText) els.scenarioEvText.textContent = "0%";
       assumptionChanged = true;
       markAssumptionChangedUI(true);
       reloadDecision();
@@ -2925,6 +3084,8 @@ function bindEvents() {
       els.prefHorizon.value = "mid";
       els.scenarioFx.value = "0";
       els.scenarioEv.value = "5";
+      if (els.scenarioFxText) els.scenarioFxText.textContent = "0.0%";
+      if (els.scenarioEvText) els.scenarioEvText.textContent = "5%";
       assumptionChanged = false;
       markAssumptionChangedUI(false);
       reloadDecision();
@@ -2936,6 +3097,8 @@ function bindEvents() {
       els.prefHorizon.value = "short";
       els.scenarioFx.value = "-2";
       els.scenarioEv.value = "15";
+      if (els.scenarioFxText) els.scenarioFxText.textContent = "-2.0%";
+      if (els.scenarioEvText) els.scenarioEvText.textContent = "15%";
       assumptionChanged = true;
       markAssumptionChangedUI(true);
       reloadDecision();

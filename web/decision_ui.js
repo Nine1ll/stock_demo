@@ -11,6 +11,7 @@
   function signalClass(label) {
     const v = String(label || "").toLowerCase();
     if (v.includes("bull") || v.includes("상승")) return "sig-bull";
+    if (v.includes("조정") || v.includes("correction")) return "sig-correction";
     if (v.includes("bear") || v.includes("하락")) return "sig-bear";
     return "sig-neutral";
   }
@@ -50,10 +51,62 @@
     return out;
   }
 
-  function labelByScore(score) {
+  function labelByScore(score, fundamentalsStrong = false) {
     if (score >= 60) return "상승 우세";
     if (score >= 45) return "중립";
+    if (fundamentalsStrong) return "조정 구간";
     return "하락 우세";
+  }
+
+  function verdictFromActionAndSignals(stance, signals) {
+    const s = String(stance || "").trim().toLowerCase();
+    const midLabel = String(signals?.mid?.label || "").toLowerCase();
+    const longLabel = String(signals?.long?.label || "").toLowerCase();
+    const shortLabel = String(signals?.short?.label || "").toLowerCase();
+    const hasBearMidLong = midLabel.includes("하락") || longLabel.includes("하락") || midLabel.includes("bear") || longLabel.includes("bear");
+    const hasBullShort = shortLabel.includes("상승") || shortLabel.includes("bull");
+
+    // Priority 1: explicit conservative stances should never show Buy.
+    if (s.includes("관망") || s.includes("watch")) {
+      return { key: "neutral", text: "관망", tone: "Neutral" };
+    }
+    if (s.includes("비중축소") || s.includes("매도") || s.includes("reduce") || s.includes("sell")) {
+      return { key: "sell", text: "비중축소", tone: "Reduce" };
+    }
+
+    // Priority 2: even if stance is bullish, downgrade when mid/long are bearish.
+    if ((s.includes("매수") || s.includes("buy")) && hasBearMidLong) {
+      return { key: "neutral", text: "관망", tone: "Neutral" };
+    }
+    if ((s.includes("매수") || s.includes("buy")) && hasBullShort) {
+      return { key: "buy", text: "매수", tone: "Buy" };
+    }
+    return { key: "neutral", text: "관망", tone: "Neutral" };
+  }
+
+  function verdictFromModelAndAction(signals, actionStance) {
+    const model = signals?.verdict_model || {};
+    const stance = String(actionStance || "").trim().toLowerCase();
+    const conservative = stance.includes("관망") || stance.includes("watch");
+    const verdictText = String(model.verdict || "").toLowerCase();
+    if (model.is_dip_buy || verdictText.includes("buy the dip") || verdictText.includes("oversold")) {
+      if (conservative) return { key: "opportunity", text: "저평가 관찰", tone: "Opportunity" };
+      return { key: "opportunity", text: "눌림 매수", tone: "Opportunity" };
+    }
+    if (verdictText.includes("strong sell")) {
+      return { key: "sell", text: "비중축소", tone: "Strong Sell" };
+    }
+    if (verdictText.includes("sell")) {
+      return conservative
+        ? { key: "neutral", text: "관망", tone: "Neutral" }
+        : { key: "sell", text: "비중축소", tone: "Sell" };
+    }
+    if (verdictText.includes("buy")) {
+      return conservative
+        ? { key: "neutral", text: "관망", tone: "Neutral" }
+        : { key: "buy", text: "매수", tone: "Buy" };
+    }
+    return verdictFromActionAndSignals(actionStance, signals);
   }
 
   function horizonModel(horizon, snap, risk, opts = {}) {
@@ -149,6 +202,7 @@
       { key: "mid", title: "중기" },
       { key: "long", title: "장기" },
     ];
+    const fundamentalsStrong = safeNum(snap.valuation, 50) >= 60 && safeNum(snap.quality, 50) >= 55;
 
     const rawScores = order.map((r) => safeNum(signals[r.key]?.score, 0));
     const allSameSignal = rawScores.length === 3 && rawScores.every((v) => Math.abs(v - rawScores[0]) < 0.01);
@@ -160,7 +214,7 @@
           ? modelScore
           : clamp(safeNum(s.score, 50) * 0.72 + modelScore * 0.28, 0, 100);
         const score = Math.round(blended * 10) / 10;
-        const label = allSameSignal ? labelByScore(score) : (s.label || labelByScore(score));
+        const label = allSameSignal ? labelByScore(score, fundamentalsStrong) : (s.label || labelByScore(score, fundamentalsStrong));
         const reasonPool = uniqText([todayMoveReason, ...(s.reasons || []), ...horizonReasons(r.key, snap, risk)]);
         const topReasons = reasonPool.slice(0, 3);
         const topHtml = topReasons.map((x) => `<li>${esc(x)}</li>`).join("") || "<li>근거 없음</li>";
@@ -183,7 +237,7 @@
     const unifiedScore = useSingleSignal
       ? Math.round(((horizonModel("short", snap, risk, opts) + horizonModel("mid", snap, risk, opts) + horizonModel("long", snap, risk, opts)) / 3) * 10) / 10
       : null;
-    const unifiedLabel = unifiedScore == null ? "" : labelByScore(unifiedScore);
+    const unifiedLabel = unifiedScore == null ? "" : labelByScore(unifiedScore, fundamentalsStrong);
     const unifiedReasons = useSingleSignal
       ? uniqText([
           todayMoveReason,
@@ -218,6 +272,10 @@
     const chipHtml = executionChips.map((x) => `<span class="tag action-chip">${esc(x)}</span>`).join("");
     const heatScore = safeNum(sectorHeat.heat_score, 0).toFixed(1);
     const resilienceScore = safeNum(sectorHeat.resilience_score, 0).toFixed(1);
+    const overheatScore = clamp(safeNum(snap.hype, 0), 0, 100);
+    const verdict = verdictFromModelAndAction(signals, action.stance || "");
+    const verdictModel = signals?.verdict_model || {};
+    const needleDeg = ((overheatScore / 100) * 180 - 90).toFixed(1);
     const heatText = sectorHeat.label
       ? ` | 섹터열기 ${heatScore} · 체력 ${resilienceScore} (${esc(sectorHeat.label)})`
       : "";
@@ -227,6 +285,25 @@
 
     el.innerHTML = `
       <div class="panel-head"><h3>Decision Panel</h3><div>${assumptionChip(opts)}<span class="chip">개인화 반영</span></div></div>
+      <section class="verdict-hero">
+        <div class="verdict-meta">
+          <strong>Final Verdict</strong>
+          <span class="muted-sm">행동 제안 기준</span>
+        </div>
+        <div class="muted-sm" style="margin-bottom:8px;">최종 판단은 종합점수·리스크·밸류 기준으로 계산되며, 과열 점수는 보조지표로 제공됩니다.</div>
+        <div class="verdict-center" style="margin:2px 0 8px;">
+          <span class="verdict-label ${verdict.key}">${verdict.text} (${verdict.tone})</span>
+        </div>
+        ${verdictModel.tag ? `<div class="muted-sm" style="text-align:center;">${esc(verdictModel.tag)}</div>` : ""}
+        <div class="verdict-gauge-wrap">
+          <div class="verdict-gauge" role="img" aria-label="Overheat score ${overheatScore.toFixed(1)}"></div>
+          <div class="verdict-needle" style="transform: translateX(-50%) rotate(${needleDeg}deg)"></div>
+        </div>
+        <div class="verdict-center">
+          <div class="verdict-score">${overheatScore.toFixed(1)}</div>
+          <span class="muted-sm">Overheat Gauge</span>
+        </div>
+      </section>
       <div class="risk-breakdown" style="margin-bottom:8px;">
         종합 ${safeNum(snap.composite, 0).toFixed(1)}점 | 밸류 ${safeNum(snap.valuation, 0).toFixed(1)} · 기술력 ${safeNum(snap.tech_strength, 0).toFixed(1)} · 자본력 ${safeNum(snap.capital_power, 0).toFixed(1)} · 시장영향 ${safeNum(snap.market_impact, 0).toFixed(1)} · 품질 ${safeNum(snap.quality, 0).toFixed(1)} · 과열 ${safeNum(snap.hype, 0).toFixed(1)}${heatText}
       </div>
