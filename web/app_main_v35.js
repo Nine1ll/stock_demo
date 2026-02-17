@@ -974,7 +974,19 @@ function initPageTabs() {
 }
 
 async function fetchApi(path) {
-  const res = await fetch(path, { cache: "no-store" });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  let res;
+  try {
+    res = await fetch(path, { cache: "no-store", signal: controller.signal });
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      throw new Error("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     let detail = "";
     try {
@@ -993,11 +1005,24 @@ async function fetchApi(path) {
 }
 
 async function fetchApiPost(path, body) {
-  const res = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body || {}),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  let res;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      throw new Error("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
@@ -3304,7 +3329,7 @@ function setupPWA() {
       return;
     }
     navigator.serviceWorker
-      .register("./sw.js?v=35")
+      .register("./sw.js?v=36")
       .then((reg) => reg.update())
       .catch(() => {
         // no-op

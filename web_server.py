@@ -3499,21 +3499,37 @@ def lookup_company(query: str, market: str = "US", limit: int = 20) -> Dict[str,
         return {"ok": False, "error": "query is required"}
     lookup_market = clean_lookup_market(market)
     local = lookup_company_local(q, lookup_market, limit=max(limit * 2, 40))
-    provider: List[Dict[str, Any]] = []
-    provider.extend(lookup_company_global_alias(q, lookup_market, limit=max(limit, 30)))
+    quick_provider: List[Dict[str, Any]] = []
+    quick_provider.extend(lookup_company_global_alias(q, lookup_market, limit=max(limit, 30)))
     if lookup_market in ("US", "ALL"):
-        provider.extend(lookup_company_us_alias(q, limit=max(limit, 30)))
-        provider.extend(lookup_company_us_finnhub(q, limit=max(limit, 30)))
+        quick_provider.extend(lookup_company_us_alias(q, limit=max(limit, 30)))
     if lookup_market in ("KR", "ALL"):
-        provider.extend(lookup_company_kr_dart(q, limit=max(limit, 30)))
-        provider.extend(lookup_company_kr_naver_autocomplete(q, limit=max(limit, 30)))
-        provider.extend(lookup_company_kr_naver(q, limit=max(limit, 30)))
-        provider.extend(lookup_company_kr_alias(q, limit=max(limit, 30)))
-    provider.extend(lookup_company_yahoo(q, market=lookup_market, limit=max(limit, 30)))
-    for item in local + provider:
+        quick_provider.extend(lookup_company_kr_alias(q, limit=max(limit, 30)))
+
+    for item in local + quick_provider:
         if "score" not in item:
             item["score"] = score_lookup_match(q, item, preferred_market=lookup_market)
-    items = dedupe_companies(local + provider, limit=max(limit * 2, 40))
+    quick_items = dedupe_companies(local + quick_provider, limit=max(limit * 2, 40))
+
+    # Short-circuit network providers when local/alias confidence is already high.
+    top_quick_score = float(quick_items[0].get("score", 0.0)) if quick_items else 0.0
+    enough_quick_hits = len(quick_items) >= max(3, min(limit, 8))
+    has_high_confidence = top_quick_score >= 90.0
+
+    provider: List[Dict[str, Any]] = []
+    if not (enough_quick_hits or has_high_confidence):
+        if lookup_market in ("US", "ALL"):
+            provider.extend(lookup_company_us_finnhub(q, limit=max(limit, 30)))
+        if lookup_market in ("KR", "ALL"):
+            provider.extend(lookup_company_kr_dart(q, limit=max(limit, 30)))
+            provider.extend(lookup_company_kr_naver_autocomplete(q, limit=max(limit, 30)))
+            provider.extend(lookup_company_kr_naver(q, limit=max(limit, 30)))
+        provider.extend(lookup_company_yahoo(q, market=lookup_market, limit=max(limit, 30)))
+
+    for item in quick_items + provider:
+        if "score" not in item:
+            item["score"] = score_lookup_match(q, item, preferred_market=lookup_market)
+    items = dedupe_companies(quick_items + provider, limit=max(limit * 2, 40))
 
     # Cross-market fallback for frequent misses caused by strict market selection.
     # Keep this lightweight: local seed + alias only (no extra network calls).
@@ -3585,6 +3601,7 @@ def lookup_company(query: str, market: str = "US", limit: int = 20) -> Dict[str,
         market=lookup_market,
         count=len(items),
         local_count=len(local),
+        quick_provider_count=len(quick_provider),
         provider_count=len(provider),
         fallback_market=fallback_market,
         source_counts=src_counts,
